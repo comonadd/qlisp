@@ -32,7 +32,7 @@ inline bool can_be_a_part_of_symbol(char ch) {
   return isalpha(ch) || ch == '+' || ch == '-';
 }
 
-enum class ObjType { List, Symbol, String, Number, Nil };
+enum class ObjType { List, Symbol, String, Number, Nil, Function };
 
 int OF_BUILTIN = 0x1;
 
@@ -48,6 +48,10 @@ struct Object {
     std::string *s_value;
     std::vector<Object *> *l_value;
     Builtin builtin_handler;
+    struct {
+      Object *funargs;
+      Object *funbody;
+    } f_value;
   } val;
 };
 
@@ -339,6 +343,41 @@ Object *print_builtin(Object *expr) {
   return nil_obj;
 }
 
+Object *defun_builtin(Object *expr) {
+  auto *l = expr->val.l_value;
+  int elems_len = l->size();
+  if (elems_len < 3) {
+    printf("Function should have an argument list and a body\n");
+    return nil_obj;
+  }
+  auto *fundef_list = l->at(1);
+  // parse function definition list
+  if (fundef_list->type != ObjType::List) {
+    printf("Function definition list should be a list");
+    return nil_obj;
+  }
+  auto *funobj = new_object(ObjType::Function);
+  auto *fundef_list_v = fundef_list->val.l_value;
+  auto *funname = fundef_list_v->at(0)->val.s_value;
+  funobj->val.f_value.funargs = fundef_list;
+  funobj->val.f_value.funbody = expr;
+  symtable[*funname] = funobj;
+  return funobj;
+}
+
+Object *call_function(Object *fobj, Object *args_list) {
+  auto *bodyl = fobj->val.f_value.funbody->val.l_value;
+  int body_length = bodyl->size();
+  // Starting from 1 because 1st index is function name
+  int body_expr_idx = 2;
+  Object *last_evaluated = nil_obj;
+  while (body_expr_idx < body_length) {
+    last_evaluated = eval_expr(bodyl->at(body_expr_idx));
+    ++body_expr_idx;
+  }
+  return last_evaluated;
+}
+
 Object *eval_expr(Object *expr) {
   switch (expr->type) {
   case ObjType::Number:
@@ -373,10 +412,12 @@ Object *eval_expr(Object *expr) {
     auto *callable = symtable[*op->val.s_value];
     bool is_builtin = callable->flags & OF_BUILTIN;
     if (is_builtin) {
+      // Built-in function, no need to do much
       auto *bhandler = callable->val.builtin_handler;
       return bhandler(expr);
     }
-    return nil_obj;
+    // User-defined function
+    return call_function(callable, expr);
   }
   case ObjType::Nil: {
     return expr;
@@ -423,6 +464,7 @@ void init_interp() {
   symtable["-"] = create_builtin_obj(sub_objects);
   symtable["setq"] = create_builtin_obj(setq_builtin);
   symtable["print"] = create_builtin_obj(print_builtin);
+  symtable["defun"] = create_builtin_obj(defun_builtin);
   // symtable["*"] = create_builtin_obj(mul_objects);
   // symtable["/"] = create_builtin_obj(div_objects);
 }
