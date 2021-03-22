@@ -56,7 +56,46 @@ struct Object {
 };
 
 static Object *nil_obj;
-std::unordered_map<std::string, Object *> symtable;
+
+// Symtable
+
+struct SymTable {
+  std::unordered_map<std::string, Object *> map;
+  SymTable *prev;
+};
+
+SymTable *symtable;
+
+inline void set_symbol(std::string const &key, Object *value) {
+  symtable->map[key] = value;
+}
+Object *get_symbol(std::string &key) {
+  Object *res = nil_obj;
+  SymTable *ltable = symtable;
+  while (true) {
+    bool present = ltable->map.find(key) != ltable->map.end();
+    if (present) {
+      return ltable->map[key];
+    }
+    // Global table
+    if (ltable->prev == nullptr) {
+      return nil_obj;
+    }
+    ltable = ltable->prev;
+  }
+}
+void enter_scope() {
+  SymTable *new_scope = new SymTable();
+  new_scope->prev = symtable;
+  symtable = new_scope;
+}
+void exit_scope() {
+  auto *prev = symtable->prev;
+  delete symtable;
+  symtable = prev;
+}
+
+// Object helpers
 
 Object *new_object(ObjType type, int flags = 0) {
   Object *res = (Object *)malloc(sizeof(*res));
@@ -205,6 +244,11 @@ void print_obj(Object *obj, int indent = 0) {
   case ObjType::Symbol: {
     printf("%s[Sym] %s", indent_s, obj->val.s_value->data());
   } break;
+  case ObjType::Function: {
+    auto fval = obj->val.f_value;
+    auto *funname = fval.funargs->val.l_value->at(0)->val.s_value;
+    printf("%s[Function] %s\n", indent_s, funname->data());
+  } break;
   case ObjType::List: {
     printf("%s[List] %llu: \n", indent_s, obj->val.l_value->size());
     for (int i = 0; i < obj->val.l_value->size(); ++i) {
@@ -307,7 +351,7 @@ Object *setq_builtin(Object *expr) {
   }
   Object *symname = l->at(1);
   Object *symvalue = eval_expr(l->at(2));
-  symtable[*symname->val.s_value] = symvalue;
+  set_symbol(*symname->val.s_value, symvalue);
   return nil_obj;
 }
 
@@ -361,11 +405,29 @@ Object *defun_builtin(Object *expr) {
   auto *funname = fundef_list_v->at(0)->val.s_value;
   funobj->val.f_value.funargs = fundef_list;
   funobj->val.f_value.funbody = expr;
-  symtable[*funname] = funobj;
+  set_symbol(*funname, funobj);
   return funobj;
 }
 
 Object *call_function(Object *fobj, Object *args_list) {
+  enter_scope();
+  // Set arguments in the local scope
+  auto *arglistl = fobj->val.f_value.funargs->val.l_value;
+  auto *provided_arglistl = args_list->val.l_value;
+  for (int arg_idx = 1; arg_idx < arglistl->size(); ++arg_idx) {
+    auto *arg = arglistl->at(arg_idx);
+    auto *local_arg_name = arg->val.s_value;
+    if (arg_idx >= provided_arglistl->size()) {
+      // Reached the end of the user-provided argument list, just
+      // fill int nils for the remaining arguments
+      set_symbol(*local_arg_name, nil_obj);
+    } else {
+      auto *provided_arg = provided_arglistl->at(arg_idx);
+      set_symbol(*local_arg_name, provided_arg);
+    }
+  }
+  if (provided_arglistl->size() != arglistl->size()) {
+  }
   auto *bodyl = fobj->val.f_value.funbody->val.l_value;
   int body_length = bodyl->size();
   // Starting from 1 because 1st index is function name
@@ -375,6 +437,7 @@ Object *call_function(Object *fobj, Object *args_list) {
     last_evaluated = eval_expr(bodyl->at(body_expr_idx));
     ++body_expr_idx;
   }
+  exit_scope();
   return last_evaluated;
 }
 
@@ -387,12 +450,13 @@ Object *eval_expr(Object *expr) {
   case ObjType::Symbol: {
     // Look up value of the symbol in the symbol table
     auto *syms = expr->val.s_value;
-    bool present_in_symtable = symtable.find(*syms) != symtable.end();
+    auto *res = get_symbol(*syms);
+    bool present_in_symtable = res != nil_obj;
     if (!present_in_symtable) {
       printf("Symbol not found %s\n", syms->data());
       return nil_obj;
     }
-    return symtable[*syms];
+    return res;
   } break;
   case ObjType::List: {
     auto *l = expr->val.l_value;
@@ -401,15 +465,13 @@ Object *eval_expr(Object *expr) {
       return expr;
     auto *op = l->at(0);
     int args_len = elems_len - 1;
-    bool present_in_symtable =
-        symtable.find(*op->val.s_value) != symtable.end();
+    auto *callable = get_symbol(*op->val.s_value);
+    bool present_in_symtable = callable != nil_obj;
     auto *op_s = op->val.s_value;
-    // printf("reading Symbol %s\n", op_s->data());
     if (!present_in_symtable) {
       printf("Symbol not found %s\n", op_s->data());
       return nil_obj;
     }
-    auto *callable = symtable[*op->val.s_value];
     bool is_builtin = callable->flags & OF_BUILTIN;
     if (is_builtin) {
       // Built-in function, no need to do much
@@ -458,15 +520,18 @@ char *read_whole_file_into_memory(char const *fp) {
 }
 
 void init_interp() {
+  // Initialize global symbol table
+  symtable = new SymTable();
+  symtable->prev = nullptr;
   nil_obj = create_nil_obj();
   // initialize symtable with builtins
-  symtable["+"] = create_builtin_obj(add_objects);
-  symtable["-"] = create_builtin_obj(sub_objects);
-  symtable["setq"] = create_builtin_obj(setq_builtin);
-  symtable["print"] = create_builtin_obj(print_builtin);
-  symtable["defun"] = create_builtin_obj(defun_builtin);
+  set_symbol("+", create_builtin_obj(add_objects));
+  set_symbol("-", create_builtin_obj(sub_objects));
   // symtable["*"] = create_builtin_obj(mul_objects);
   // symtable["/"] = create_builtin_obj(div_objects);
+  set_symbol("setq", create_builtin_obj(setq_builtin));
+  set_symbol("print", create_builtin_obj(print_builtin));
+  set_symbol("defun", create_builtin_obj(defun_builtin));
 }
 
 int main(int argc, char **argv) {
