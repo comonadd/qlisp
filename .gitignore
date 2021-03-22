@@ -1,0 +1,11 @@
+*.vcxproj*
+cmake_install.cmake
+*.exe
+*.pdb
+*.sln
+.vs
+CMakeCache.txt
+CMakeFiles
+Debug
+lisp_impl.dir
+Makefile
