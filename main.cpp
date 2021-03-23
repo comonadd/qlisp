@@ -5,6 +5,19 @@
 #include <unordered_map>
 #include <vector>
 
+#define DEBUG 1
+
+#if DEBUG
+#define assert_stmt(__EXPR, __MSG)                                             \
+  do {                                                                         \
+    if (!(__EXPR)) {                                                           \
+      printf("Assertion failed: %s\n", __MSG);                                 \
+    }                                                                          \
+  } while (0)
+#else
+#define assert_stmt
+#endif
+
 // TODO: Wrap in a struct
 char *text;
 int text_pos = 0;
@@ -35,6 +48,8 @@ inline bool can_be_a_part_of_symbol(char ch) {
 enum class ObjType { List, Symbol, String, Number, Nil, Function };
 
 int OF_BUILTIN = 0x1;
+int OF_LAMBDA = 0x2;
+int OF_EVALUATED = 0x4;
 
 struct Object;
 
@@ -47,7 +62,10 @@ struct Object {
     int i_value;
     std::string *s_value;
     std::vector<Object *> *l_value;
-    Builtin builtin_handler;
+    struct {
+      char *name;
+      Builtin builtin_handler;
+    } bf_value;
     struct {
       Object *funargs;
       Object *funbody;
@@ -104,10 +122,16 @@ Object *new_object(ObjType type, int flags = 0) {
   return res;
 }
 
-Object *create_nil_obj() { return new_object(ObjType::Nil); }
+Object *create_nil_obj() { return new_object(ObjType::Nil, OF_EVALUATED); }
 
 Object *create_str_obj(std::string *s) {
-  auto *res = new_object(ObjType::String);
+  auto *res = new_object(ObjType::String, OF_EVALUATED);
+  res->val.s_value = s;
+  return res;
+}
+
+Object *create_sym_obj(std::string *s) {
+  auto *res = new_object(ObjType::Symbol);
   res->val.s_value = s;
   return res;
 }
@@ -123,43 +147,53 @@ Object *create_str_obj(int num) {
   return create_str_obj(num_s);
 }
 
-Object *create_builtin_obj(Builtin handler) {
-  Object *res = new_object(ObjType::Symbol, OF_BUILTIN);
-  res->val.builtin_handler = handler;
-  return res;
-}
-
-Object *read_str() {
-  Object *res = (Object *)malloc(sizeof(*res));
-  res->type = ObjType::String;
-  res->val.s_value = new std::string("");
-  consume_char('"');
-  char ch = get_char();
-  while (text_pos < text_len && ch != '"') {
-    res->val.s_value->push_back(ch);
-    ch = next_char();
-  }
-  consume_char('"');
-  return res;
-}
-
-Object *read_sym() {
-  Object *res = (Object *)malloc(sizeof(*res));
-  res->type = ObjType::Symbol;
-  res->val.s_value = new std::string("");
-  char ch = get_char();
-  while (text_pos < text_len && can_be_a_part_of_symbol(ch)) {
-    res->val.s_value->push_back(ch);
-    ch = next_char();
-  }
+Object *create_list_obj() {
+  auto *res = new_object(ObjType::List);
+  res->val.l_value = new std::vector<Object *>();
   return res;
 }
 
 Object *create_num_obj(int v) {
-  Object *res = (Object *)malloc(sizeof(*res));
-  res->type = ObjType::Number;
+  auto *res = new_object(ObjType::Number, OF_EVALUATED);
   res->val.i_value = v;
   return res;
+}
+
+void list_append_inplace(Object *list, Object *item) {
+  list->val.l_value->push_back(item);
+}
+
+Object *create_builtin_fobj(char *name, Builtin handler) {
+  Object *res = new_object(ObjType::Function, OF_BUILTIN | OF_EVALUATED);
+  res->val.bf_value.builtin_handler = handler;
+  res->val.bf_value.name = name;
+  return res;
+}
+
+void create_builtin_function_and_save(char *name, Builtin handler) {
+  set_symbol(name, create_builtin_fobj(name, handler));
+}
+
+Object *read_str() {
+  auto *svalue = new std::string("");
+  consume_char('"');
+  char ch = get_char();
+  while (text_pos < text_len && ch != '"') {
+    svalue->push_back(ch);
+    ch = next_char();
+  }
+  consume_char('"');
+  return create_str_obj(svalue);
+}
+
+Object *read_sym() {
+  auto *svalue = new std::string("");
+  char ch = get_char();
+  while (text_pos < text_len && can_be_a_part_of_symbol(ch)) {
+    svalue->push_back(ch);
+    ch = next_char();
+  }
+  return create_sym_obj(svalue);
 }
 
 Object *read_num() {
@@ -179,9 +213,7 @@ Object *read_num() {
 Object *read_expr();
 
 Object *read_list() {
-  Object *res = (Object *)malloc(sizeof(*res));
-  res->type = ObjType::List;
-  res->val.l_value = new std::vector<Object *>();
+  Object *res = create_list_obj();
   consume_char('(');
   while (get_char() != ')') {
     if (text_pos >= text_len) {
@@ -190,7 +222,7 @@ Object *read_list() {
       return nullptr;
     }
     auto *e = read_expr();
-    res->val.l_value->push_back(e);
+    list_append_inplace(res, e);
   }
   consume_char(')');
   return res;
@@ -245,9 +277,14 @@ void print_obj(Object *obj, int indent = 0) {
     printf("%s[Sym] %s", indent_s, obj->val.s_value->data());
   } break;
   case ObjType::Function: {
-    auto fval = obj->val.f_value;
-    auto *funname = fval.funargs->val.l_value->at(0)->val.s_value;
-    printf("%s[Function] %s\n", indent_s, funname->data());
+    if (obj->flags & OF_BUILTIN) {
+      auto *funname = obj->val.bf_value.name;
+      printf("%s[Builtin] %s\n", indent_s, funname);
+    } else {
+      auto fval = obj->val.f_value;
+      auto *funname = fval.funargs->val.l_value->at(0)->val.s_value;
+      printf("%s[Function] %s\n", indent_s, funname->data());
+    }
   } break;
   case ObjType::List: {
     printf("%s[List] %llu: \n", indent_s, obj->val.l_value->size());
@@ -409,12 +446,41 @@ Object *defun_builtin(Object *expr) {
   return funobj;
 }
 
+Object *lambda_builtin(Object *expr) {
+  auto *l = expr->val.l_value;
+  int elems_len = l->size();
+  if (elems_len < 3) {
+    printf("Lambdas should have an argument list and a body\n");
+    return nil_obj;
+  }
+  // parse function definition list
+  auto *fundef_list = l->at(1);
+  if (fundef_list->type != ObjType::List) {
+    printf("First paremeter of lambda() should be a list");
+    return nil_obj;
+  }
+  auto *funobj = new_object(ObjType::Function);
+  auto *fundef_list_v = fundef_list->val.l_value;
+  funobj->flags |= OF_LAMBDA;
+  funobj->val.f_value.funargs = fundef_list;
+  funobj->val.f_value.funbody = expr;
+  return funobj;
+}
+
 Object *call_function(Object *fobj, Object *args_list) {
   enter_scope();
   // Set arguments in the local scope
   auto *arglistl = fobj->val.f_value.funargs->val.l_value;
   auto *provided_arglistl = args_list->val.l_value;
-  for (int arg_idx = 1; arg_idx < arglistl->size(); ++arg_idx) {
+  bool is_lambda = fobj->flags & OF_LAMBDA;
+  // Lambda only have arguments int their arglist, while defuns
+  // also have a function name as a first parameter. So we skip that
+  // if needed.
+  int starting_arg_idx = is_lambda ? 0 : 1;
+  // Because calling function still means that the first element
+  // of the list is either a (lambda ()) or a function name (callthis a b c)
+  int provided_arg_offset = is_lambda ? 1 : 0;
+  for (int arg_idx = starting_arg_idx; arg_idx < arglistl->size(); ++arg_idx) {
     auto *arg = arglistl->at(arg_idx);
     auto *local_arg_name = arg->val.s_value;
     if (arg_idx >= provided_arglistl->size()) {
@@ -422,11 +488,10 @@ Object *call_function(Object *fobj, Object *args_list) {
       // fill int nils for the remaining arguments
       set_symbol(*local_arg_name, nil_obj);
     } else {
-      auto *provided_arg = provided_arglistl->at(arg_idx);
+      int provided_arg_idx = provided_arg_offset + arg_idx;
+      auto *provided_arg = provided_arglistl->at(provided_arg_idx);
       set_symbol(*local_arg_name, provided_arg);
     }
-  }
-  if (provided_arglistl->size() != arglistl->size()) {
   }
   auto *bodyl = fobj->val.f_value.funbody->val.l_value;
   int body_length = bodyl->size();
@@ -442,11 +507,10 @@ Object *call_function(Object *fobj, Object *args_list) {
 }
 
 Object *eval_expr(Object *expr) {
+  if (expr->flags & OF_EVALUATED) {
+    return expr;
+  }
   switch (expr->type) {
-  case ObjType::Number:
-    return expr;
-  case ObjType::String:
-    return expr;
   case ObjType::Symbol: {
     // Look up value of the symbol in the symbol table
     auto *syms = expr->val.s_value;
@@ -456,6 +520,13 @@ Object *eval_expr(Object *expr) {
       printf("Symbol not found %s\n", syms->data());
       return nil_obj;
     }
+    // If object is not yet evaluated
+    if (!(res->flags & OF_EVALUATED)) {
+      // Evaluate & save in the symbol table
+      res = eval_expr(res);
+      res->flags |= OF_EVALUATED;
+      set_symbol(*syms, res);
+    }
     return res;
   } break;
   case ObjType::List: {
@@ -464,28 +535,23 @@ Object *eval_expr(Object *expr) {
     if (elems_len == 0)
       return expr;
     auto *op = l->at(0);
-    int args_len = elems_len - 1;
-    auto *callable = get_symbol(*op->val.s_value);
-    bool present_in_symtable = callable != nil_obj;
-    auto *op_s = op->val.s_value;
-    if (!present_in_symtable) {
-      printf("Symbol not found %s\n", op_s->data());
+    auto *callable = eval_expr(op);
+    if (callable == nil_obj) {
+      printf("Nil is not callable\n");
       return nil_obj;
     }
     bool is_builtin = callable->flags & OF_BUILTIN;
     if (is_builtin) {
       // Built-in function, no need to do much
-      auto *bhandler = callable->val.builtin_handler;
+      auto *bhandler = callable->val.bf_value.builtin_handler;
       return bhandler(expr);
     }
     // User-defined function
     return call_function(callable, expr);
   }
-  case ObjType::Nil: {
-    return expr;
-  } break;
   default: {
-    printf("Unknown expression\n");
+    // For other types (string, number, nil) there is no need to evaluate them
+    // as they are in their final form
     return expr;
   } break;
   }
@@ -525,30 +591,39 @@ void init_interp() {
   symtable->prev = nullptr;
   nil_obj = create_nil_obj();
   // initialize symtable with builtins
-  set_symbol("+", create_builtin_obj(add_objects));
-  set_symbol("-", create_builtin_obj(sub_objects));
-  // symtable["*"] = create_builtin_obj(mul_objects);
-  // symtable["/"] = create_builtin_obj(div_objects);
-  set_symbol("setq", create_builtin_obj(setq_builtin));
-  set_symbol("print", create_builtin_obj(print_builtin));
-  set_symbol("defun", create_builtin_obj(defun_builtin));
+  create_builtin_function_and_save("+", (add_objects));
+  create_builtin_function_and_save("-", (sub_objects));
+  create_builtin_function_and_save("setq", (setq_builtin));
+  create_builtin_function_and_save("print", (print_builtin));
+  create_builtin_function_and_save("defun", (defun_builtin));
+  create_builtin_function_and_save("lambda", (lambda_builtin));
 }
 
 int main(int argc, char **argv) {
-  text = read_whole_file_into_memory("./examples/basic.lisp");
-  text_len = strlen(text);
-
+  if (argc < 2) {
+    printf("You should provide at least one file path to execute\n");
+    return -1;
+  }
   init_interp();
-
-  while (text_pos < text_len) {
-    auto *e = read_expr();
-    // printf("Expression-------------------------------------------\n");
-    // print_obj(e);
-    // printf("\n");
-    // printf("Evaluated expression---------------------------------\n");
-    auto *eval = eval_expr(e);
-    // print_obj(eval);
-    // printf("\n");
+  for (int i = 1; i < argc; ++i) {
+    char *file_to_read = argv[i];
+    printf("Processing %s\n", file_to_read);
+    text = read_whole_file_into_memory(file_to_read);
+    if (text == nullptr) {
+      printf("Couldn't load file at %s, skipping\n", file_to_read);
+      continue;
+    }
+    text_len = strlen(text);
+    while (text_pos < text_len) {
+      auto *e = read_expr();
+      // printf("Expression-------------------------------------------\n");
+      // print_obj(e);
+      // printf("\n");
+      // printf("Evaluated expression---------------------------------\n");
+      auto *eval = eval_expr(e);
+      // print_obj(eval);
+      // printf("\n");
+    }
   }
   return 0;
 }
