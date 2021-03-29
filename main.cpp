@@ -42,10 +42,11 @@ inline void consume_char(char ch) {
 }
 
 inline bool can_be_a_part_of_symbol(char ch) {
-  return isalpha(ch) || ch == '+' || ch == '-';
+  return isalpha(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' ||
+         ch == '*' || ch == '/' || ch == '>' || ch == '<';
 }
 
-enum class ObjType { List, Symbol, String, Number, Nil, Function };
+enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean };
 
 int OF_BUILTIN = 0x1;
 int OF_LAMBDA = 0x2;
@@ -54,6 +55,7 @@ int OF_EVALUATED = 0x4;
 struct Object;
 
 using Builtin = Object *(*)(Object *);
+using BinaryObjOpHandler = Object *(*)(Object *a, Object *b);
 
 struct Object {
   ObjType type;
@@ -74,6 +76,8 @@ struct Object {
 };
 
 static Object *nil_obj;
+static Object *true_obj;
+static Object *false_obj;
 
 // Symtable
 
@@ -128,6 +132,18 @@ Object *create_str_obj(std::string *s) {
   auto *res = new_object(ObjType::String, OF_EVALUATED);
   res->val.s_value = s;
   return res;
+}
+
+Object *create_bool_obj(bool v) {
+  auto *res = new_object(ObjType::Boolean, OF_EVALUATED);
+  res->val.i_value = (int)v;
+  return res;
+}
+
+Object *bool_obj_from(bool v) {
+  if (v)
+    return true_obj;
+  return false_obj;
 }
 
 Object *create_sym_obj(std::string *s) {
@@ -467,6 +483,164 @@ Object *lambda_builtin(Object *expr) {
   return funobj;
 }
 
+bool is_truthy(Object *obj) {
+  switch (obj->type) {
+  case ObjType::Boolean: {
+    return obj->val.i_value != 0;
+  } break;
+  case ObjType::Number: {
+    return obj->val.i_value != 0;
+  } break;
+  case ObjType::String: {
+    return obj->val.s_value->size() != 0;
+  } break;
+  case ObjType::List: {
+    return obj->val.l_value->size() != 0;
+  } break;
+  case ObjType::Nil: {
+    return false;
+  } break;
+  case ObjType::Function: {
+    return true;
+  } break;
+  default: {
+    return false;
+  } break;
+  }
+}
+
+Object *if_builtin(Object *expr) {
+  auto *l = expr->val.l_value;
+  if (l->size() != 4) {
+    printf("if takes exactly 3 arguments: condition, then, and else blocks. "
+           "The function was given %i arguments instead\n",
+           l->size());
+    return nil_obj;
+  }
+  auto *condition = l->at(1);
+  auto *then_expr = l->at(2);
+  auto *else_expr = l->at(3);
+  if (is_truthy(eval_expr(condition))) {
+    return eval_expr(then_expr);
+  } else {
+    return eval_expr(else_expr);
+  }
+}
+
+bool objects_equal_bare(Object *a, Object *b) {
+  // Objects of different types cannot be equal
+  if (a->type != b->type)
+    return false_obj;
+  switch (a->type) {
+  case ObjType::Number: {
+    return a->val.i_value == b->val.i_value;
+  } break;
+  case ObjType::String: {
+    return a->val.s_value == b->val.s_value;
+  } break;
+  case ObjType::Boolean: {
+    return a->val.i_value == b->val.i_value;
+  } break;
+  case ObjType::List: {
+    if (a->val.l_value->size() != b->val.l_value->size())
+      return false;
+    for (int i = 0; i < a->val.l_value->size(); ++i) {
+      auto *a_member = a->val.l_value->at(i);
+      auto *b_member = b->val.l_value->at(i);
+      if (!objects_equal_bare(a_member, b_member))
+        return false;
+    }
+    return true;
+  } break;
+  case ObjType::Nil: {
+    return true;
+  } break;
+  case ObjType::Function: {
+    // Comparing by argument list memory address for now. Maybe do something
+    // else later
+    return a->val.f_value.funargs == b->val.f_value.funargs;
+  } break;
+  default:
+    return false_obj;
+  }
+}
+
+Object *objects_equal(Object *a, Object *b) {
+  return bool_obj_from(objects_equal_bare(a, b));
+}
+
+bool objects_gt_bare(Object *a, Object *b) {
+  // Objects of different types cannot be compared
+  // TODO: Maybe return nil instead?
+  if (a->type != b->type)
+    return false_obj;
+  switch (a->type) {
+  case ObjType::Number: {
+    return a->val.i_value > b->val.i_value;
+  } break;
+  case ObjType::String: {
+    return a->val.s_value > b->val.s_value;
+  } break;
+  case ObjType::Boolean: {
+    return a->val.i_value > b->val.i_value;
+  } break;
+  default:
+    return false_obj;
+  }
+}
+
+Object *objects_gt(Object *a, Object *b) {
+  return bool_obj_from(objects_gt_bare(a, b));
+}
+
+bool objects_lt_bare(Object *a, Object *b) {
+  // Objects of different types cannot be compared
+  // TODO: Maybe return nil instead?
+  if (a->type != b->type)
+    return false_obj;
+  switch (a->type) {
+  case ObjType::Number: {
+    return a->val.i_value < b->val.i_value;
+  } break;
+  case ObjType::String: {
+    return a->val.s_value < b->val.s_value;
+  } break;
+  case ObjType::Boolean: {
+    return a->val.i_value < b->val.i_value;
+  } break;
+  default:
+    return false_obj;
+  }
+}
+
+Object *objects_lt(Object *a, Object *b) {
+  return bool_obj_from(objects_lt_bare(a, b));
+}
+
+Object *binary_builtin(Object *expr, char const *name,
+                       BinaryObjOpHandler handler) {
+  auto *l = expr->val.l_value;
+  if (l->size() != 3) {
+    printf("%s takes exactly 2 operands, %i was given\n", name, l->size());
+    return nil_obj;
+  }
+  auto *left_op = eval_expr(l->at(1));
+  auto *right_op = eval_expr(l->at(2));
+  return handler(left_op, right_op);
+}
+
+Object *equal_builtin(Object *expr) {
+  return binary_builtin(expr, "=", objects_equal);
+}
+
+Object *gt_builtin(Object *expr) {
+  return binary_builtin(expr, ">", objects_gt);
+}
+
+Object *lt_builtin(Object *expr) {
+  return binary_builtin(expr, "<", objects_lt);
+}
+
 Object *call_function(Object *fobj, Object *args_list) {
   enter_scope();
   // Set arguments in the local scope
@@ -517,7 +691,7 @@ Object *eval_expr(Object *expr) {
     auto *res = get_symbol(*syms);
     bool present_in_symtable = res != nil_obj;
     if (!present_in_symtable) {
-      printf("Symbol not found %s\n", syms->data());
+      printf("Symbol not found: \"%s\"\n", syms->data());
       return nil_obj;
     }
     // If object is not yet evaluated
@@ -590,13 +764,19 @@ void init_interp() {
   symtable = new SymTable();
   symtable->prev = nullptr;
   nil_obj = create_nil_obj();
+  true_obj = create_bool_obj(true);
+  false_obj = create_bool_obj(false);
   // initialize symtable with builtins
   create_builtin_function_and_save("+", (add_objects));
   create_builtin_function_and_save("-", (sub_objects));
+  create_builtin_function_and_save("=", (equal_builtin));
+  create_builtin_function_and_save(">", (gt_builtin));
+  create_builtin_function_and_save("<", (lt_builtin));
   create_builtin_function_and_save("setq", (setq_builtin));
   create_builtin_function_and_save("print", (print_builtin));
   create_builtin_function_and_save("defun", (defun_builtin));
   create_builtin_function_and_save("lambda", (lambda_builtin));
+  create_builtin_function_and_save("if", (if_builtin));
 }
 
 int main(int argc, char **argv) {
