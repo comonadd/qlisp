@@ -51,6 +51,7 @@ enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean };
 int OF_BUILTIN = 0x1;
 int OF_LAMBDA = 0x2;
 int OF_EVALUATED = 0x4;
+int OF_VARIADIC_FUN = 0x8;
 
 struct Object;
 
@@ -651,12 +652,39 @@ Object *call_function(Object *fobj, Object *args_list) {
   // also have a function name as a first parameter. So we skip that
   // if needed.
   int starting_arg_idx = is_lambda ? 0 : 1;
+  // this is true when the function is variadic (i.e. contains the apply symbol)
+  bool is_variadic = fobj->flags & OF_VARIADIC_FUN;
   // Because calling function still means that the first element
   // of the list is either a (lambda ()) or a function name (callthis a b c)
   int provided_arg_offset = is_lambda ? 1 : 0;
   for (int arg_idx = starting_arg_idx; arg_idx < arglistl->size(); ++arg_idx) {
     auto *arg = arglistl->at(arg_idx);
     auto *local_arg_name = arg->val.s_value;
+    if (arg == dot_obj) {
+      // we've reached the end of the usual argument list
+      // now variadic arguments start
+      // so skip this dot, parse the variadic list arg name, and exit
+      assert(is_variadic,
+             "Found dot in function definition but no variadic flag set");
+      if (arg_idx != (arglistl->size() - 2)) {
+        // if the dot is not on the pre-last position, print out an error
+        // message
+        printf("apply (.) operator in function definition incorrectly placed. "
+               "It should be at the pre-last position, followed by a vararg "
+               "list argument name\n");
+        return nil_obj;
+      }
+      // read all arguments into a list and bind it to the local scope
+      auto *varg = arglist->at(arg_idx + 1);
+      auto *varg_lobj = new_list_obj();
+      for (int provided_arg_idx = arg_idx;
+           provided_arg_idx < provided_arglistl->size(); ++provided_arg_idx) {
+        auto *provided_arg = provided_arglistl->at(provided_arg_idx);
+        list_append(var_lobj, provided_arg);
+      }
+      set_symbol(*varg->val.s_value, vrag_lobj);
+      break;
+    }
     if (arg_idx >= provided_arglistl->size()) {
       // Reached the end of the user-provided argument list, just
       // fill int nils for the remaining arguments
@@ -734,7 +762,6 @@ Object *eval_expr(Object *expr) {
 char *read_whole_file_into_memory(char const *fp) {
   FILE *f = fopen(fp, "r");
   if (!f) {
-    printf("Failed to open file at %s\n", fp);
     return nullptr;
   }
   fseek(f, 0L, SEEK_END);
@@ -759,6 +786,41 @@ char *read_whole_file_into_memory(char const *fp) {
   return content;
 }
 
+#define WIN_32 1
+
+#ifdef WIN_32
+char PATH_SEP = '\\';
+#endif
+
+std::string join_paths(std::string const &a, std::string const &b) {
+  std::string res;
+  int a_end_pos = a.size() - 1;
+  while (a[a_end_pos] == PATH_SEP) {
+    --a_end_pos;
+  }
+  for (int i = 0; i <= a_end_pos; ++i) {
+    res += a[i];
+  }
+  res += PATH_SEP;
+  res += b;
+  return res;
+}
+
+bool load_file(char const *file_to_read) {
+  text = read_whole_file_into_memory(file_to_read);
+  if (text == nullptr) {
+    printf("Couldn't load file at %s, skipping\n", file_to_read);
+    return false;
+  }
+  text_len = strlen(text);
+  text_pos = 0;
+  while (text_pos < text_len) {
+    auto *e = read_expr();
+    auto *eval = eval_expr(e);
+  }
+  return true;
+}
+
 void init_interp() {
   // Initialize global symbol table
   symtable = new SymTable();
@@ -777,6 +839,9 @@ void init_interp() {
   create_builtin_function_and_save("defun", (defun_builtin));
   create_builtin_function_and_save("lambda", (lambda_builtin));
   create_builtin_function_and_save("if", (if_builtin));
+  // Load the standard library
+  char const *STDLIB_PATH = "./stdlib";
+  load_file(join_paths(STDLIB_PATH, "basic.lisp").data());
 }
 
 int main(int argc, char **argv) {
@@ -787,22 +852,7 @@ int main(int argc, char **argv) {
   init_interp();
   for (int i = 1; i < argc; ++i) {
     char *file_to_read = argv[i];
-    text = read_whole_file_into_memory(file_to_read);
-    if (text == nullptr) {
-      printf("Couldn't load file at %s, skipping\n", file_to_read);
-      continue;
-    }
-    text_len = strlen(text);
-    while (text_pos < text_len) {
-      auto *e = read_expr();
-      // printf("Expression-------------------------------------------\n");
-      // print_obj(e);
-      // printf("\n");
-      // printf("Evaluated expression---------------------------------\n");
-      auto *eval = eval_expr(e);
-      // print_obj(eval);
-      // printf("\n");
-    }
+    load_file(file_to_read);
   }
   return 0;
 }
