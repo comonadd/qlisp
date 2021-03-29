@@ -607,7 +607,6 @@ int main(int argc, char **argv) {
   init_interp();
   for (int i = 1; i < argc; ++i) {
     char *file_to_read = argv[i];
-    printf("Processing %s\n", file_to_read);
     text = read_whole_file_into_memory(file_to_read);
     if (text == nullptr) {
       printf("Couldn't load file at %s, skipping\n", file_to_read);
