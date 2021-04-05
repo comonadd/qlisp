@@ -44,18 +44,15 @@ def main():
                     got_it = iter(got.splitlines())
                     expected_it = iter(expected.splitlines())
                     while True:
-                        try:
-                            el = next(expected_it)
-                            el = el.strip() if el is not None else None
-                            gl = next(got_it)
-                            gl = gl.strip() if gl is not None else None
-                            if not el and not gl:
-                                # Nothing left to compare, just exit
-                                break
-                            same = el == gl
-                            if not same:
-                                break
-                        except StopIteration:
+                        el = next(expected_it, None)
+                        el = el.strip() if el is not None else None
+                        gl = next(got_it, None)
+                        gl = gl.strip() if gl is not None else None
+                        if not el and not gl:
+                            # Nothing left to compare, just exit
+                            break
+                        same = el == gl
+                        if not same:
                             break
                     if same:
                         print("... {}Test passed{}".format(COL_OKGREEN, COL_ENDC))
@@ -79,4 +76,7 @@ def main():
         print("{}{} {} failed{}".format(COL_FAIL, failed, fmt_num_word("test", failed), COL_ENDC))
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

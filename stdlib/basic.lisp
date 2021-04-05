@@ -1,4 +1,4 @@
 (defun (case . conds)
     (if (car (car conds))
-        (cadr conds)
+        (cadr (car conds))
         (case (cdr conds))))

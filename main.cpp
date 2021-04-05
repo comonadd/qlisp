@@ -51,7 +51,7 @@ enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean };
 int OF_BUILTIN = 0x1;
 int OF_LAMBDA = 0x2;
 int OF_EVALUATED = 0x4;
-int OF_VARIADIC_FUN = 0x8;
+int OF_LIST_LITERAL = 0x8;
 
 struct Object;
 
@@ -79,6 +79,7 @@ struct Object {
 static Object *nil_obj;
 static Object *true_obj;
 static Object *false_obj;
+static Object *dot_obj;
 
 // Symtable
 
@@ -127,46 +128,63 @@ Object *new_object(ObjType type, int flags = 0) {
   return res;
 }
 
-Object *create_nil_obj() { return new_object(ObjType::Nil, OF_EVALUATED); }
+// @ROBUSTNESS do we need this ?? we only perform this function call once during
+// initialization
+inline Object *create_nil_obj() {
+  return new_object(ObjType::Nil, OF_EVALUATED);
+}
 
-Object *create_str_obj(std::string *s) {
+inline Object *create_str_obj(std::string *s) {
   auto *res = new_object(ObjType::String, OF_EVALUATED);
   res->val.s_value = s;
   return res;
 }
 
-Object *create_bool_obj(bool v) {
+inline Object *create_bool_obj(bool v) {
   auto *res = new_object(ObjType::Boolean, OF_EVALUATED);
   res->val.i_value = (int)v;
   return res;
 }
 
-Object *bool_obj_from(bool v) {
+inline Object *bool_obj_from(bool v) {
   if (v)
     return true_obj;
   return false_obj;
 }
 
-Object *create_sym_obj(std::string *s) {
-  auto *res = new_object(ObjType::Symbol);
-  res->val.s_value = s;
-  return res;
-}
-
-Object *create_str_obj(char *cs) {
+inline Object *create_str_obj(char *cs) {
   auto *res = new_object(ObjType::String);
   res->val.s_value = new std::string(cs);
   return res;
 }
 
-Object *create_str_obj(int num) {
+inline Object *create_str_obj(int num) {
   auto *num_s = new std::string(std::to_string(num));
   return create_str_obj(num_s);
 }
 
-Object *create_list_obj() {
+inline Object *create_list_obj() {
   auto *res = new_object(ObjType::List);
   res->val.l_value = new std::vector<Object *>();
+  return res;
+}
+inline size_t list_length(Object *list) { return list->val.l_value->size(); }
+inline Object *list_index(Object *list, size_t i) {
+  return list->val.l_value->at(i);
+}
+inline std::vector<Object *>* list_members(Object *list) {
+  return list->val.l_value;
+}
+
+Object *create_sym_obj(char const *s) {
+  auto *res = new_object(ObjType::Symbol);
+  res->val.s_value = new std::string(s);
+  return res;
+}
+
+Object *create_sym_obj(std::string *s) {
+  auto *res = new_object(ObjType::Symbol);
+  res->val.s_value = s;
   return res;
 }
 
@@ -177,6 +195,9 @@ Object *create_num_obj(int v) {
 }
 
 void list_append_inplace(Object *list, Object *item) {
+  // we probably need to track dependency of the new list on CDR objects of the
+  // argument list so we have to increment ref count for each object. Somehow
+  // abstract that into a separate function call? like "ref" for example?
   list->val.l_value->push_back(item);
 }
 
@@ -229,8 +250,11 @@ Object *read_num() {
 
 Object *read_expr();
 
-Object *read_list() {
+Object *read_list(bool literal = false) {
   Object *res = create_list_obj();
+  if (literal) {
+    res->flags |= OF_LIST_LITERAL;
+  }
   consume_char('(');
   while (get_char() != ')') {
     if (text_pos >= text_len) {
@@ -260,11 +284,15 @@ Object *read_expr() {
     return read_list();
   } break;
   case '\'': {
-    return nullptr;
+    skip_char();
+    return read_list(true);
   } break;
   case '"': {
     return read_str();
   } break;
+  case '.':
+    skip_char();
+    return dot_obj;
   default: {
     if (isdigit(ch)) {
       return read_num();
@@ -409,21 +437,46 @@ Object *setq_builtin(Object *expr) {
   return nil_obj;
 }
 
+std::string* obj_to_string_bare(Object* obj) {
+    static std::string* nil_str = new std::string("nil");
+    switch (obj->type) {
+    case ObjType::String: {
+        return obj->val.s_value;
+    } break;
+    case ObjType::Number: {
+        auto* s = new std::string(std::to_string(obj->val.i_value));
+        return s;
+    } break;
+    case ObjType::Nil: {
+        return nil_str;
+    } break;
+    case ObjType::List: {
+        auto* res = new std::string("(");
+        for (int i = 0; i < list_length(obj) - 1; ++i) {
+            auto* member = list_index(obj, i);
+            *res += *obj_to_string_bare(member);
+            *res += ' ';
+        }
+        *res += *obj_to_string_bare(list_index(obj, list_length(obj) - 1));
+        *res += ')';
+        return res;
+    } break;
+    default: {
+        return nil_str;
+    }
+    }
+}
+
 Object *obj_to_string(Object *obj) {
   // TODO: Implement for symbols
   switch (obj->type) {
   case ObjType::String: {
     return obj;
   } break;
-  case ObjType::Number: {
-    return create_str_obj(obj->val.i_value);
-  } break;
-  case ObjType::Nil: {
-    return create_str_obj("nil");
-  } break;
   default: {
-    return create_str_obj("nil");
-  }
+    auto s = obj_to_string_bare(obj);
+    return create_str_obj(s);
+  } break;
   }
 }
 
@@ -642,6 +695,38 @@ Object *lt_builtin(Object *expr) {
   return binary_builtin(expr, "<", objects_lt);
 }
 
+Object *car_builtin(Object *expr) {
+  auto* list_to_operate_on = eval_expr(list_index(expr, 1));
+  if (list_length(list_to_operate_on) < 1) return nil_obj;
+  return list_index(list_to_operate_on, 0);
+}
+
+Object *cadr_builtin(Object *expr) {
+  auto* list_to_operate_on = eval_expr(list_index(expr, 1));
+  if (list_length(list_to_operate_on) < 2) return nil_obj;
+  return list_index(list_to_operate_on, 1);
+}
+
+Object *cdr_builtin(Object *expr) {
+  // currently creating a new list object for every cdr call. Maybe store as a
+  // linked list instead and return a pointer to the next of the head so that
+  // this call is only O(1)?
+  auto *new_list = create_list_obj();
+  auto* list_to_operate_on = eval_expr(list_index(expr, 1));
+  if (list_to_operate_on->type != ObjType::List) {
+      printf("cdr can only operate on lists\n");
+      return nil_obj;
+  }
+  if (list_length(list_to_operate_on) < 1)
+    return list_to_operate_on;
+  for (int i = 1; i < list_length(list_to_operate_on); ++i) {
+    auto *evaluated_item = list_index(list_to_operate_on, i);
+    list_append_inplace(new_list, evaluated_item);
+  }
+  new_list->flags |= OF_EVALUATED;
+  return new_list;
+}
+
 Object *call_function(Object *fobj, Object *args_list) {
   enter_scope();
   // Set arguments in the local scope
@@ -652,8 +737,6 @@ Object *call_function(Object *fobj, Object *args_list) {
   // also have a function name as a first parameter. So we skip that
   // if needed.
   int starting_arg_idx = is_lambda ? 0 : 1;
-  // this is true when the function is variadic (i.e. contains the apply symbol)
-  bool is_variadic = fobj->flags & OF_VARIADIC_FUN;
   // Because calling function still means that the first element
   // of the list is either a (lambda ()) or a function name (callthis a b c)
   int provided_arg_offset = is_lambda ? 1 : 0;
@@ -664,8 +747,6 @@ Object *call_function(Object *fobj, Object *args_list) {
       // we've reached the end of the usual argument list
       // now variadic arguments start
       // so skip this dot, parse the variadic list arg name, and exit
-      assert(is_variadic,
-             "Found dot in function definition but no variadic flag set");
       if (arg_idx != (arglistl->size() - 2)) {
         // if the dot is not on the pre-last position, print out an error
         // message
@@ -675,14 +756,14 @@ Object *call_function(Object *fobj, Object *args_list) {
         return nil_obj;
       }
       // read all arguments into a list and bind it to the local scope
-      auto *varg = arglist->at(arg_idx + 1);
-      auto *varg_lobj = new_list_obj();
+      auto *varg = arglistl->at(arg_idx + 1);
+      auto *varg_lobj = create_list_obj();
       for (int provided_arg_idx = arg_idx;
            provided_arg_idx < provided_arglistl->size(); ++provided_arg_idx) {
         auto *provided_arg = provided_arglistl->at(provided_arg_idx);
-        list_append(var_lobj, provided_arg);
+        list_append_inplace(varg_lobj, provided_arg);
       }
-      set_symbol(*varg->val.s_value, vrag_lobj);
+      set_symbol(*varg->val.s_value, varg_lobj);
       break;
     }
     if (arg_idx >= provided_arglistl->size()) {
@@ -732,6 +813,15 @@ Object *eval_expr(Object *expr) {
     return res;
   } break;
   case ObjType::List: {
+    if (expr->flags & OF_LIST_LITERAL) {
+      auto* items = list_members(expr);
+      for (int i = 0; i < items->size(); ++i) {
+        // do we need to evaluate here?
+        (*items)[i] = eval_expr(items->at(i));
+      }
+      expr->flags |= OF_EVALUATED;
+      return expr;
+    }
     auto *l = expr->val.l_value;
     int elems_len = l->size();
     if (elems_len == 0)
@@ -789,7 +879,7 @@ char *read_whole_file_into_memory(char const *fp) {
 #define WIN_32 1
 
 #ifdef WIN_32
-char PATH_SEP = '\\';
+char PATH_SEP = '/';
 #endif
 
 std::string join_paths(std::string const &a, std::string const &b) {
@@ -828,6 +918,7 @@ void init_interp() {
   nil_obj = create_nil_obj();
   true_obj = create_bool_obj(true);
   false_obj = create_bool_obj(false);
+  dot_obj = create_sym_obj(".");
   // initialize symtable with builtins
   create_builtin_function_and_save("+", (add_objects));
   create_builtin_function_and_save("-", (sub_objects));
@@ -839,6 +930,9 @@ void init_interp() {
   create_builtin_function_and_save("defun", (defun_builtin));
   create_builtin_function_and_save("lambda", (lambda_builtin));
   create_builtin_function_and_save("if", (if_builtin));
+  create_builtin_function_and_save("car", (car_builtin));
+  create_builtin_function_and_save("cdr", (cdr_builtin));
+  create_builtin_function_and_save("cadr", (cadr_builtin));
   // Load the standard library
   char const *STDLIB_PATH = "./stdlib";
   load_file(join_paths(STDLIB_PATH, "basic.lisp").data());
