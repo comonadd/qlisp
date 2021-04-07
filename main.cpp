@@ -80,11 +80,15 @@ static Object *nil_obj;
 static Object *true_obj;
 static Object *false_obj;
 static Object *dot_obj;
+static Object *else_obj;
 
 // Symtable
+// TODO: Add limit to the depth of the symbol table (to prevent stack overflows)
+
+using SymVars = std::unordered_map<std::string, Object *>;
 
 struct SymTable {
-  std::unordered_map<std::string, Object *> map;
+  SymVars map;
   SymTable *prev;
 };
 
@@ -103,13 +107,19 @@ Object *get_symbol(std::string &key) {
     }
     // Global table
     if (ltable->prev == nullptr) {
-      return nil_obj;
+      return nullptr;
     }
     ltable = ltable->prev;
   }
 }
 void enter_scope() {
   SymTable *new_scope = new SymTable();
+  new_scope->prev = symtable;
+  symtable = new_scope;
+}
+void enter_scope_with(SymVars vars) {
+  SymTable *new_scope = new SymTable();
+  new_scope->map = vars;
   new_scope->prev = symtable;
   symtable = new_scope;
 }
@@ -168,11 +178,16 @@ inline Object *create_list_obj() {
   res->val.l_value = new std::vector<Object *>();
   return res;
 }
+inline Object *create_data_list_obj() {
+  auto *res = create_list_obj();
+  res->flags |= OF_EVALUATED;
+  return res;
+}
 inline size_t list_length(Object *list) { return list->val.l_value->size(); }
 inline Object *list_index(Object *list, size_t i) {
   return list->val.l_value->at(i);
 }
-inline std::vector<Object *>* list_members(Object *list) {
+inline std::vector<Object *> *list_members(Object *list) {
   return list->val.l_value;
 }
 
@@ -185,6 +200,14 @@ Object *create_sym_obj(char const *s) {
 Object *create_sym_obj(std::string *s) {
   auto *res = new_object(ObjType::Symbol);
   res->val.s_value = s;
+  return res;
+}
+
+// this is for symbol keywords that don't need to be looked up
+template<typename T>
+Object* create_final_sym_obj(T s) {
+  auto* res = create_sym_obj(s);
+  res->flags |= OF_EVALUATED;
   return res;
 }
 
@@ -211,6 +234,17 @@ Object *create_builtin_fobj(char *name, Builtin handler) {
 void create_builtin_function_and_save(char *name, Builtin handler) {
   set_symbol(name, create_builtin_fobj(name, handler));
 }
+
+inline char const *fun_name(Object *fun) {
+  assert_stmt(fun->type == ObjType::Function,
+              "fun_name only accepts functions");
+  if (fun->flags & OF_BUILTIN) {
+    return fun->val.bf_value.name;
+  }
+  return list_index(fun->val.f_value.funargs, 0)->val.s_value->data();
+}
+
+// Parser
 
 Object *read_str() {
   auto *svalue = new std::string("");
@@ -277,6 +311,16 @@ Object *read_expr() {
   case ' ':
   case '\n':
   case '\r': {
+    // TODO: Count the skipped lines
+    skip_char();
+    return read_expr();
+  } break;
+  case ';': {
+    // TODO: Count the skipped lines
+    // skip until the end of the line
+    while (get_char() != '\n') {
+      skip_char();
+    }
     skip_char();
     return read_expr();
   } break;
@@ -437,34 +481,47 @@ Object *setq_builtin(Object *expr) {
   return nil_obj;
 }
 
-std::string* obj_to_string_bare(Object* obj) {
-    static std::string* nil_str = new std::string("nil");
-    switch (obj->type) {
-    case ObjType::String: {
-        return obj->val.s_value;
-    } break;
-    case ObjType::Number: {
-        auto* s = new std::string(std::to_string(obj->val.i_value));
-        return s;
-    } break;
-    case ObjType::Nil: {
-        return nil_str;
-    } break;
-    case ObjType::List: {
-        auto* res = new std::string("(");
-        for (int i = 0; i < list_length(obj) - 1; ++i) {
-            auto* member = list_index(obj, i);
-            *res += *obj_to_string_bare(member);
-            *res += ' ';
-        }
-        *res += *obj_to_string_bare(list_index(obj, list_length(obj) - 1));
-        *res += ')';
-        return res;
-    } break;
-    default: {
-        return nil_str;
+std::string *obj_to_string_bare(Object *obj) {
+  switch (obj->type) {
+  case ObjType::String: {
+    return obj->val.s_value;
+  } break;
+  case ObjType::Number: {
+    auto *s = new std::string(std::to_string(obj->val.i_value));
+    return s;
+  } break;
+  case ObjType::Function: {
+    auto const *fn = fun_name(obj);
+    std::string *s = new std::string("[Function ");
+    if (obj->flags & OF_BUILTIN) {
+      *s += "(builtin) ";
     }
+    *s += fn;
+    *s += ']';
+    return s;
+  } break;
+  case ObjType::List: {
+    auto *res = new std::string("(");
+    for (int i = 0; i < list_length(obj) - 1; ++i) {
+      auto *member = list_index(obj, i);
+      *res += *obj_to_string_bare(member);
+      *res += ' ';
     }
+    *res += *obj_to_string_bare(list_index(obj, list_length(obj) - 1));
+    *res += ')';
+    return res;
+  } break;
+  case ObjType::Boolean: {
+    if (obj == false_obj)
+      return new std::string("false");
+    if (obj == true_obj)
+      return new std::string("true");
+    assert_stmt(false, "Impossible case");
+  } break;
+  default: {
+    return new std::string("nil");
+  }
+  }
 }
 
 Object *obj_to_string(Object *obj) {
@@ -487,6 +544,7 @@ Object *print_builtin(Object *expr) {
   while (arg_idx < elems_len) {
     auto *arg = eval_expr(l->at(arg_idx));
     auto *sobj = obj_to_string(arg);
+    // TODO: Handle escape sequences
     printf("%s", sobj->val.s_value->data());
     ++arg_idx;
   }
@@ -584,7 +642,7 @@ Object *if_builtin(Object *expr) {
 bool objects_equal_bare(Object *a, Object *b) {
   // Objects of different types cannot be equal
   if (a->type != b->type)
-    return false_obj;
+    return false;
   switch (a->type) {
   case ObjType::Number: {
     return a->val.i_value == b->val.i_value;
@@ -615,7 +673,7 @@ bool objects_equal_bare(Object *a, Object *b) {
     return a->val.f_value.funargs == b->val.f_value.funargs;
   } break;
   default:
-    return false_obj;
+    return false;
   }
 }
 
@@ -674,8 +732,9 @@ Object *objects_lt(Object *a, Object *b) {
 Object *binary_builtin(Object *expr, char const *name,
                        BinaryObjOpHandler handler) {
   auto *l = expr->val.l_value;
+  size_t given_args = l->size() - 1;
   if (l->size() != 3) {
-    printf("%s takes exactly 2 operands, %i was given\n", name, l->size());
+    printf("%s takes exactly 2 operands, %i was given\n", name, given_args);
     return nil_obj;
   }
   auto *left_op = eval_expr(l->at(1));
@@ -695,15 +754,31 @@ Object *lt_builtin(Object *expr) {
   return binary_builtin(expr, "<", objects_lt);
 }
 
+bool is_list(Object *obj) { return obj->type == ObjType::List; }
+
 Object *car_builtin(Object *expr) {
-  auto* list_to_operate_on = eval_expr(list_index(expr, 1));
-  if (list_length(list_to_operate_on) < 1) return nil_obj;
+  auto *list_to_operate_on = eval_expr(list_index(expr, 1));
+  if (!is_list(list_to_operate_on)) {
+    auto *s = obj_to_string_bare(list_to_operate_on);
+    printf("car only operates on lists, got %s\n", s->data());
+    delete s;
+    return nil_obj;
+  }
+  if (list_length(list_to_operate_on) < 1)
+    return nil_obj;
   return list_index(list_to_operate_on, 0);
 }
 
 Object *cadr_builtin(Object *expr) {
-  auto* list_to_operate_on = eval_expr(list_index(expr, 1));
-  if (list_length(list_to_operate_on) < 2) return nil_obj;
+  auto *list_to_operate_on = eval_expr(list_index(expr, 1));
+  if (!is_list(list_to_operate_on)) {
+    auto *s = obj_to_string_bare(list_to_operate_on);
+    printf("cadr only operates on lists, got %s\n", s->data());
+    delete s;
+    return nil_obj;
+  }
+  if (list_length(list_to_operate_on) < 2)
+    return nil_obj;
   return list_index(list_to_operate_on, 1);
 }
 
@@ -712,10 +787,16 @@ Object *cdr_builtin(Object *expr) {
   // linked list instead and return a pointer to the next of the head so that
   // this call is only O(1)?
   auto *new_list = create_list_obj();
-  auto* list_to_operate_on = eval_expr(list_index(expr, 1));
+  auto *list_to_operate_on = eval_expr(list_index(expr, 1));
+  if (!is_list(list_to_operate_on)) {
+    auto *s = obj_to_string_bare(list_to_operate_on);
+    printf("cdr only operates on lists, got %s\n", s->data());
+    delete s;
+    return nil_obj;
+  }
   if (list_to_operate_on->type != ObjType::List) {
-      printf("cdr can only operate on lists\n");
-      return nil_obj;
+    printf("cdr can only operate on lists\n");
+    return nil_obj;
   }
   if (list_length(list_to_operate_on) < 1)
     return list_to_operate_on;
@@ -727,8 +808,28 @@ Object *cdr_builtin(Object *expr) {
   return new_list;
 }
 
+Object *cond_builtin(Object *expr) {
+  // sequentually check every provided condition
+  // and if one of them is true, return the provided value
+  if (list_length(expr) < 2) {
+    printf("cond requires at least one condition pair argument");
+    return nil_obj;
+  }
+  for (int cond_idx = 1; cond_idx < list_length(expr); ++cond_idx) {
+    auto* cond_pair = list_index(expr, cond_idx);
+    auto* cond_expr = list_index(cond_pair, 0);
+    auto* cond_evaluated = eval_expr(cond_expr);
+    // this is an "else" branch, and so just return the value since there was no matches before
+    bool otherwise_branch = cond_evaluated == else_obj;
+    if (otherwise_branch || is_truthy(cond_evaluated)) {
+      auto* res = eval_expr(list_index(cond_pair, 1));
+      return res;
+    }
+  }
+}
+
+
 Object *call_function(Object *fobj, Object *args_list) {
-  enter_scope();
   // Set arguments in the local scope
   auto *arglistl = fobj->val.f_value.funargs->val.l_value;
   auto *provided_arglistl = args_list->val.l_value;
@@ -737,6 +838,16 @@ Object *call_function(Object *fobj, Object *args_list) {
   // also have a function name as a first parameter. So we skip that
   // if needed.
   int starting_arg_idx = is_lambda ? 0 : 1;
+
+  SymVars locals;
+  auto set_symbol_local = [&](std::string &symname, Object *value) -> bool {
+    // evaluate all arguments before calling
+    // TODO: Maybe implement lazy evaluation for arguments with context binding?
+    auto *evaluated = eval_expr(value);
+    locals[symname] = evaluated;
+    return true;
+  };
+
   // Because calling function still means that the first element
   // of the list is either a (lambda ()) or a function name (callthis a b c)
   int provided_arg_offset = is_lambda ? 1 : 0;
@@ -757,23 +868,51 @@ Object *call_function(Object *fobj, Object *args_list) {
       }
       // read all arguments into a list and bind it to the local scope
       auto *varg = arglistl->at(arg_idx + 1);
-      auto *varg_lobj = create_list_obj();
+      auto *varg_lobj = create_data_list_obj();
       for (int provided_arg_idx = arg_idx;
            provided_arg_idx < provided_arglistl->size(); ++provided_arg_idx) {
         auto *provided_arg = provided_arglistl->at(provided_arg_idx);
+        // user provided a dot argument, which means that a list containing
+        // all the rest of variadic arguments must follow
+        if (provided_arg == dot_obj) {
+          // the dot must be on the pre-last position
+          if (provided_arg_idx != provided_arglistl->size() - 2) {
+            auto *fn = fun_name(fobj);
+            printf("Error while calling %s: dot notation on the caller side "
+                   "must be followed by a list argument containing the "
+                   "variadic expansion list\n",
+                   fn);
+            return nil_obj;
+          }
+          // expand the rest
+          auto *provided_variadic_list =
+              eval_expr(provided_arglistl->at(provided_arg_idx + 1));
+          if (provided_variadic_list->type != ObjType::List) {
+            printf("Error: dot operator on caller side should always be "
+                   "followed by a list argument\n");
+            return nil_obj;
+          }
+          for (int exp_idx = 0; exp_idx < list_length(provided_variadic_list);
+               ++exp_idx) {
+            auto *exp_item = list_index(provided_variadic_list, exp_idx);
+            list_append_inplace(varg_lobj, exp_item);
+          }
+          // we're done with the argument list
+          break;
+        }
         list_append_inplace(varg_lobj, provided_arg);
       }
-      set_symbol(*varg->val.s_value, varg_lobj);
+      set_symbol_local(*varg->val.s_value, varg_lobj);
       break;
     }
     if (arg_idx >= provided_arglistl->size()) {
       // Reached the end of the user-provided argument list, just
       // fill int nils for the remaining arguments
-      set_symbol(*local_arg_name, nil_obj);
+      set_symbol_local(*local_arg_name, nil_obj);
     } else {
       int provided_arg_idx = provided_arg_offset + arg_idx;
       auto *provided_arg = provided_arglistl->at(provided_arg_idx);
-      set_symbol(*local_arg_name, provided_arg);
+      set_symbol_local(*local_arg_name, provided_arg);
     }
   }
   auto *bodyl = fobj->val.f_value.funbody->val.l_value;
@@ -781,6 +920,7 @@ Object *call_function(Object *fobj, Object *args_list) {
   // Starting from 1 because 1st index is function name
   int body_expr_idx = 2;
   Object *last_evaluated = nil_obj;
+  enter_scope_with(locals);
   while (body_expr_idx < body_length) {
     last_evaluated = eval_expr(bodyl->at(body_expr_idx));
     ++body_expr_idx;
@@ -788,6 +928,8 @@ Object *call_function(Object *fobj, Object *args_list) {
   exit_scope();
   return last_evaluated;
 }
+
+bool is_callable(Object *obj) { return obj->type == ObjType::Function; }
 
 Object *eval_expr(Object *expr) {
   if (expr->flags & OF_EVALUATED) {
@@ -798,7 +940,7 @@ Object *eval_expr(Object *expr) {
     // Look up value of the symbol in the symbol table
     auto *syms = expr->val.s_value;
     auto *res = get_symbol(*syms);
-    bool present_in_symtable = res != nil_obj;
+    bool present_in_symtable = res != nullptr;
     if (!present_in_symtable) {
       printf("Symbol not found: \"%s\"\n", syms->data());
       return nil_obj;
@@ -814,7 +956,7 @@ Object *eval_expr(Object *expr) {
   } break;
   case ObjType::List: {
     if (expr->flags & OF_LIST_LITERAL) {
-      auto* items = list_members(expr);
+      auto *items = list_members(expr);
       for (int i = 0; i < items->size(); ++i) {
         // do we need to evaluate here?
         (*items)[i] = eval_expr(items->at(i));
@@ -828,8 +970,10 @@ Object *eval_expr(Object *expr) {
       return expr;
     auto *op = l->at(0);
     auto *callable = eval_expr(op);
-    if (callable == nil_obj) {
-      printf("Nil is not callable\n");
+    if (!is_callable(callable)) {
+      auto *s = obj_to_string_bare(callable);
+      printf("Error: %s is not callable\n", s->data());
+      delete s;
       return nil_obj;
     }
     bool is_builtin = callable->flags & OF_BUILTIN;
@@ -918,8 +1062,13 @@ void init_interp() {
   nil_obj = create_nil_obj();
   true_obj = create_bool_obj(true);
   false_obj = create_bool_obj(false);
-  dot_obj = create_sym_obj(".");
+  dot_obj = create_final_sym_obj(".");
+  else_obj = create_final_sym_obj(".");
   // initialize symtable with builtins
+  set_symbol("nil", nil_obj);
+  set_symbol("true", true_obj);
+  set_symbol("false", false_obj);
+  set_symbol("else", else_obj);
   create_builtin_function_and_save("+", (add_objects));
   create_builtin_function_and_save("-", (sub_objects));
   create_builtin_function_and_save("=", (equal_builtin));
@@ -933,6 +1082,7 @@ void init_interp() {
   create_builtin_function_and_save("car", (car_builtin));
   create_builtin_function_and_save("cdr", (cdr_builtin));
   create_builtin_function_and_save("cadr", (cadr_builtin));
+  create_builtin_function_and_save("cond", (cond_builtin));
   // Load the standard library
   char const *STDLIB_PATH = "./stdlib";
   load_file(join_paths(STDLIB_PATH, "basic.lisp").data());
