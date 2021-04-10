@@ -49,6 +49,9 @@ inline bool can_be_a_part_of_symbol(char ch) {
 
 enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean };
 
+static char *otts[] = {"List", "Symbol",   "String", "Number",
+                       "Nil",  "Function", "Boolean"};
+
 int OF_BUILTIN = 0x1;
 int OF_LAMBDA = 0x2;
 int OF_EVALUATED = 0x4;
@@ -205,9 +208,8 @@ Object *create_sym_obj(std::string *s) {
 }
 
 // this is for symbol keywords that don't need to be looked up
-template<typename T>
-Object* create_final_sym_obj(T s) {
-  auto* res = create_sym_obj(s);
+template <typename T> Object *create_final_sym_obj(T s) {
+  auto *res = create_sym_obj(s);
   res->flags |= OF_EVALUATED;
   return res;
 }
@@ -393,9 +395,18 @@ void print_obj(Object *obj, int indent = 0) {
   }
 }
 
+char const *obj_type_to_str(ObjType ot) { return otts[(int)ot]; }
+
 Object *eval_expr(Object *expr);
 
+void error_binop_not_defined(char const *opname, Object const *a,
+                             Object const *b) {
+  printf("Error: %s operation for objects of type %s and %s is not defined\n",
+         opname, obj_type_to_str(a->type), obj_type_to_str(b->type));
+}
+
 Object *add_two_objects(Object *a, Object *b) {
+  static char const *opname = "Addition";
   switch (a->type) {
   case ObjType::Number: {
     if (b->type != ObjType::Number) {
@@ -405,9 +416,16 @@ Object *add_two_objects(Object *a, Object *b) {
     auto v = a->val.i_value + b->val.i_value;
     return create_num_obj(v);
   } break;
+  case ObjType::String: {
+    if (b->type != ObjType::String) {
+      error_binop_not_defined(opname, a, b);
+      return nil_obj;
+    }
+    auto *v = new std::string(*a->val.s_value + *b->val.s_value);
+    return create_str_obj(v);
+  } break;
   default: {
-    printf("Addition operation for objects of type %i is not defined\n",
-           a->type);
+    error_binop_not_defined(opname, a, b);
     return nil_obj;
   }
   }
@@ -482,10 +500,12 @@ Object *setq_builtin(Object *expr) {
   return nil_obj;
 }
 
+// This function returns a new string representing the object
+// You can delete it safely without affecting the object
 std::string *obj_to_string_bare(Object *obj) {
   switch (obj->type) {
   case ObjType::String: {
-    return obj->val.s_value;
+    return new std::string(*obj->val.s_value);
   } break;
   case ObjType::Number: {
     auto *s = new std::string(std::to_string(obj->val.i_value));
@@ -817,18 +837,18 @@ Object *cond_builtin(Object *expr) {
     return nil_obj;
   }
   for (int cond_idx = 1; cond_idx < list_length(expr); ++cond_idx) {
-    auto* cond_pair = list_index(expr, cond_idx);
-    auto* cond_expr = list_index(cond_pair, 0);
-    auto* cond_evaluated = eval_expr(cond_expr);
-    // this is an "else" branch, and so just return the value since there was no matches before
+    auto *cond_pair = list_index(expr, cond_idx);
+    auto *cond_expr = list_index(cond_pair, 0);
+    auto *cond_evaluated = eval_expr(cond_expr);
+    // this is an "else" branch, and so just return the value since there was no
+    // matches before
     bool otherwise_branch = cond_evaluated == else_obj;
     if (otherwise_branch || is_truthy(cond_evaluated)) {
-      auto* res = eval_expr(list_index(cond_pair, 1));
+      auto *res = eval_expr(list_index(cond_pair, 1));
       return res;
     }
   }
 }
-
 
 Object *call_function(Object *fobj, Object *args_list) {
   // Set arguments in the local scope
