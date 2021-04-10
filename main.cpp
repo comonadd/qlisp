@@ -952,10 +952,8 @@ inline bool check_builtin_no_params(char const *bname, Object const *expr) {
 }
 
 Object *memtotal_builtin(Object *expr) {
-  // TODO: Implement
   size_t memtotal = get_total_memory_usage();
-  auto *s = new std::string(std::to_string(memtotal));
-  return create_str_obj(s);
+  return create_num_obj(memtotal);
 }
 
 Object *timeit_builtin(Object *expr) {
