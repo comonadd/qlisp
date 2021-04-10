@@ -1,7 +1,8 @@
-#include <iostream>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -9,11 +10,11 @@
 #define DEBUG 1
 
 #if DEBUG
-#define assert_stmt(__EXPR, __MSG)                                             \
-  do {                                                                         \
-    if (!(__EXPR)) {                                                           \
-      printf("Assertion failed: %s\n", __MSG);                                 \
-    }                                                                          \
+#define assert_stmt(__EXPR, __MSG)             \
+  do {                                         \
+    if (!(__EXPR)) {                           \
+      printf("Assertion failed: %s\n", __MSG); \
+    }                                          \
   } while (0)
 #else
 #define assert_stmt
@@ -161,8 +162,7 @@ inline Object *create_bool_obj(bool v) {
 }
 
 inline Object *bool_obj_from(bool v) {
-  if (v)
-    return true_obj;
+  if (v) return true_obj;
   return false_obj;
 }
 
@@ -208,7 +208,8 @@ Object *create_sym_obj(std::string *s) {
 }
 
 // this is for symbol keywords that don't need to be looked up
-template <typename T> Object *create_final_sym_obj(T s) {
+template <typename T>
+Object *create_final_sym_obj(T s) {
   auto *res = create_sym_obj(s);
   res->flags |= OF_EVALUATED;
   return res;
@@ -308,49 +309,48 @@ Object *read_list(bool literal = false) {
 
 Object *read_expr() {
   char ch = get_char();
-  if (text_pos >= text_len)
-    return nil_obj;
+  if (text_pos >= text_len) return nil_obj;
   switch (ch) {
-  case ' ':
-  case '\n':
-  case '\r': {
-    // TODO: Count the skipped lines
-    skip_char();
-    return read_expr();
-  } break;
-  case ';': {
-    // TODO: Count the skipped lines
-    // skip until the end of the line
-    while (get_char() != '\n') {
+    case ' ':
+    case '\n':
+    case '\r': {
+      // TODO: Count the skipped lines
       skip_char();
+      return read_expr();
+    } break;
+    case ';': {
+      // TODO: Count the skipped lines
+      // skip until the end of the line
+      while (get_char() != '\n') {
+        skip_char();
+      }
+      skip_char();
+      return read_expr();
+    } break;
+    case '(': {
+      return read_list();
+    } break;
+    case '\'': {
+      skip_char();
+      return read_list(true);
+    } break;
+    case '"': {
+      return read_str();
+    } break;
+    case '.':
+      skip_char();
+      return dot_obj;
+    default: {
+      if (isdigit(ch)) {
+        return read_num();
+      }
+      if (can_be_a_part_of_symbol(ch)) {
+        return read_sym();
+      }
+      printf("Invalid character: %c (%i)\n", ch, ch);
+      exit(1);
+      return nullptr;
     }
-    skip_char();
-    return read_expr();
-  } break;
-  case '(': {
-    return read_list();
-  } break;
-  case '\'': {
-    skip_char();
-    return read_list(true);
-  } break;
-  case '"': {
-    return read_str();
-  } break;
-  case '.':
-    skip_char();
-    return dot_obj;
-  default: {
-    if (isdigit(ch)) {
-      return read_num();
-    }
-    if (can_be_a_part_of_symbol(ch)) {
-      return read_sym();
-    }
-    printf("Invalid character: %c (%i)\n", ch, ch);
-    exit(1);
-    return nullptr;
-  }
   }
 }
 
@@ -359,39 +359,39 @@ void print_obj(Object *obj, int indent = 0) {
   memset(indent_s, ' ', indent);
   indent_s[indent] = '\0';
   switch (obj->type) {
-  case ObjType::Number: {
-    printf("%s[Num] %i", indent_s, obj->val.i_value);
-  } break;
-  case ObjType::String: {
-    printf("%s[Str] %s", indent_s, obj->val.s_value->data());
-  } break;
-  case ObjType::Symbol: {
-    printf("%s[Sym] %s", indent_s, obj->val.s_value->data());
-  } break;
-  case ObjType::Function: {
-    if (obj->flags & OF_BUILTIN) {
-      auto *funname = obj->val.bf_value.name;
-      printf("%s[Builtin] %s\n", indent_s, funname);
-    } else {
-      auto fval = obj->val.f_value;
-      auto *funname = fval.funargs->val.l_value->at(0)->val.s_value;
-      printf("%s[Function] %s\n", indent_s, funname->data());
-    }
-  } break;
-  case ObjType::List: {
-    printf("%s[List] %llu: \n", indent_s, obj->val.l_value->size());
-    for (int i = 0; i < obj->val.l_value->size(); ++i) {
-      auto *lobj = obj->val.l_value->at(i);
-      print_obj(lobj, indent + 1);
-      printf("\n");
-    }
-  } break;
-  case ObjType::Nil: {
-    printf("%s[Nil]", indent_s);
-  } break;
-  default: {
-    printf("Unknown object of type %i\n", obj->type);
-  } break;
+    case ObjType::Number: {
+      printf("%s[Num] %i", indent_s, obj->val.i_value);
+    } break;
+    case ObjType::String: {
+      printf("%s[Str] %s", indent_s, obj->val.s_value->data());
+    } break;
+    case ObjType::Symbol: {
+      printf("%s[Sym] %s", indent_s, obj->val.s_value->data());
+    } break;
+    case ObjType::Function: {
+      if (obj->flags & OF_BUILTIN) {
+        auto *funname = obj->val.bf_value.name;
+        printf("%s[Builtin] %s\n", indent_s, funname);
+      } else {
+        auto fval = obj->val.f_value;
+        auto *funname = fval.funargs->val.l_value->at(0)->val.s_value;
+        printf("%s[Function] %s\n", indent_s, funname->data());
+      }
+    } break;
+    case ObjType::List: {
+      printf("%s[List] %llu: \n", indent_s, obj->val.l_value->size());
+      for (int i = 0; i < obj->val.l_value->size(); ++i) {
+        auto *lobj = obj->val.l_value->at(i);
+        print_obj(lobj, indent + 1);
+        printf("\n");
+      }
+    } break;
+    case ObjType::Nil: {
+      printf("%s[Nil]", indent_s);
+    } break;
+    default: {
+      printf("Unknown object of type %i\n", obj->type);
+    } break;
   }
 }
 
@@ -408,26 +408,26 @@ void error_binop_not_defined(char const *opname, Object const *a,
 Object *add_two_objects(Object *a, Object *b) {
   static char const *opname = "Addition";
   switch (a->type) {
-  case ObjType::Number: {
-    if (b->type != ObjType::Number) {
-      printf("Can only add other numbers to numbers\n");
-      return nil_obj;
-    }
-    auto v = a->val.i_value + b->val.i_value;
-    return create_num_obj(v);
-  } break;
-  case ObjType::String: {
-    if (b->type != ObjType::String) {
+    case ObjType::Number: {
+      if (b->type != ObjType::Number) {
+        printf("Can only add other numbers to numbers\n");
+        return nil_obj;
+      }
+      auto v = a->val.i_value + b->val.i_value;
+      return create_num_obj(v);
+    } break;
+    case ObjType::String: {
+      if (b->type != ObjType::String) {
+        error_binop_not_defined(opname, a, b);
+        return nil_obj;
+      }
+      auto *v = new std::string(*a->val.s_value + *b->val.s_value);
+      return create_str_obj(v);
+    } break;
+    default: {
       error_binop_not_defined(opname, a, b);
       return nil_obj;
     }
-    auto *v = new std::string(*a->val.s_value + *b->val.s_value);
-    return create_str_obj(v);
-  } break;
-  default: {
-    error_binop_not_defined(opname, a, b);
-    return nil_obj;
-  }
   }
 }
 
@@ -452,19 +452,19 @@ Object *add_objects(Object *expr) {
 
 Object *sub_two_objects(Object *a, Object *b) {
   switch (a->type) {
-  case ObjType::Number: {
-    if (b->type != ObjType::Number) {
-      printf("Can only substract numbers from other numbers\n");
+    case ObjType::Number: {
+      if (b->type != ObjType::Number) {
+        printf("Can only substract numbers from other numbers\n");
+        return nil_obj;
+      }
+      auto v = a->val.i_value - b->val.i_value;
+      return create_num_obj(v);
+    } break;
+    default: {
+      printf("Substraction operation for objects of type %i is not defined\n",
+             a->type);
       return nil_obj;
     }
-    auto v = a->val.i_value - b->val.i_value;
-    return create_num_obj(v);
-  } break;
-  default: {
-    printf("Substraction operation for objects of type %i is not defined\n",
-           a->type);
-    return nil_obj;
-  }
   }
 }
 
@@ -504,57 +504,55 @@ Object *setq_builtin(Object *expr) {
 // You can delete it safely without affecting the object
 std::string *obj_to_string_bare(Object *obj) {
   switch (obj->type) {
-  case ObjType::String: {
-    return new std::string(*obj->val.s_value);
-  } break;
-  case ObjType::Number: {
-    auto *s = new std::string(std::to_string(obj->val.i_value));
-    return s;
-  } break;
-  case ObjType::Function: {
-    auto const *fn = fun_name(obj);
-    std::string *s = new std::string("[Function ");
-    if (obj->flags & OF_BUILTIN) {
-      *s += "(builtin) ";
+    case ObjType::String: {
+      return new std::string(*obj->val.s_value);
+    } break;
+    case ObjType::Number: {
+      auto *s = new std::string(std::to_string(obj->val.i_value));
+      return s;
+    } break;
+    case ObjType::Function: {
+      auto const *fn = fun_name(obj);
+      std::string *s = new std::string("[Function ");
+      if (obj->flags & OF_BUILTIN) {
+        *s += "(builtin) ";
+      }
+      *s += fn;
+      *s += ']';
+      return s;
+    } break;
+    case ObjType::List: {
+      auto *res = new std::string("(");
+      for (int i = 0; i < list_length(obj) - 1; ++i) {
+        auto *member = list_index(obj, i);
+        *res += *obj_to_string_bare(member);
+        *res += ' ';
+      }
+      *res += *obj_to_string_bare(list_index(obj, list_length(obj) - 1));
+      *res += ')';
+      return res;
+    } break;
+    case ObjType::Boolean: {
+      if (obj == false_obj) return new std::string("false");
+      if (obj == true_obj) return new std::string("true");
+      assert_stmt(false, "Impossible case");
+    } break;
+    default: {
+      return new std::string("nil");
     }
-    *s += fn;
-    *s += ']';
-    return s;
-  } break;
-  case ObjType::List: {
-    auto *res = new std::string("(");
-    for (int i = 0; i < list_length(obj) - 1; ++i) {
-      auto *member = list_index(obj, i);
-      *res += *obj_to_string_bare(member);
-      *res += ' ';
-    }
-    *res += *obj_to_string_bare(list_index(obj, list_length(obj) - 1));
-    *res += ')';
-    return res;
-  } break;
-  case ObjType::Boolean: {
-    if (obj == false_obj)
-      return new std::string("false");
-    if (obj == true_obj)
-      return new std::string("true");
-    assert_stmt(false, "Impossible case");
-  } break;
-  default: {
-    return new std::string("nil");
-  }
   }
 }
 
 Object *obj_to_string(Object *obj) {
   // TODO: Implement for symbols
   switch (obj->type) {
-  case ObjType::String: {
-    return obj;
-  } break;
-  default: {
-    auto s = obj_to_string_bare(obj);
-    return create_str_obj(s);
-  } break;
+    case ObjType::String: {
+      return obj;
+    } break;
+    default: {
+      auto s = obj_to_string_bare(obj);
+      return create_str_obj(s);
+    } break;
   }
 }
 
@@ -618,36 +616,37 @@ Object *lambda_builtin(Object *expr) {
 
 bool is_truthy(Object *obj) {
   switch (obj->type) {
-  case ObjType::Boolean: {
-    return obj->val.i_value != 0;
-  } break;
-  case ObjType::Number: {
-    return obj->val.i_value != 0;
-  } break;
-  case ObjType::String: {
-    return obj->val.s_value->size() != 0;
-  } break;
-  case ObjType::List: {
-    return obj->val.l_value->size() != 0;
-  } break;
-  case ObjType::Nil: {
-    return false;
-  } break;
-  case ObjType::Function: {
-    return true;
-  } break;
-  default: {
-    return false;
-  } break;
+    case ObjType::Boolean: {
+      return obj->val.i_value != 0;
+    } break;
+    case ObjType::Number: {
+      return obj->val.i_value != 0;
+    } break;
+    case ObjType::String: {
+      return obj->val.s_value->size() != 0;
+    } break;
+    case ObjType::List: {
+      return obj->val.l_value->size() != 0;
+    } break;
+    case ObjType::Nil: {
+      return false;
+    } break;
+    case ObjType::Function: {
+      return true;
+    } break;
+    default: {
+      return false;
+    } break;
   }
 }
 
 Object *if_builtin(Object *expr) {
   auto *l = expr->val.l_value;
   if (l->size() != 4) {
-    printf("if takes exactly 3 arguments: condition, then, and else blocks. "
-           "The function was given %i arguments instead\n",
-           l->size());
+    printf(
+        "if takes exactly 3 arguments: condition, then, and else blocks. "
+        "The function was given %i arguments instead\n",
+        l->size());
     return nil_obj;
   }
   auto *condition = l->at(1);
@@ -662,39 +661,36 @@ Object *if_builtin(Object *expr) {
 
 bool objects_equal_bare(Object *a, Object *b) {
   // Objects of different types cannot be equal
-  if (a->type != b->type)
-    return false;
+  if (a->type != b->type) return false;
   switch (a->type) {
-  case ObjType::Number: {
-    return a->val.i_value == b->val.i_value;
-  } break;
-  case ObjType::String: {
-    return a->val.s_value == b->val.s_value;
-  } break;
-  case ObjType::Boolean: {
-    return a->val.i_value == b->val.i_value;
-  } break;
-  case ObjType::List: {
-    if (a->val.l_value->size() != b->val.l_value->size())
+    case ObjType::Number: {
+      return a->val.i_value == b->val.i_value;
+    } break;
+    case ObjType::String: {
+      return a->val.s_value == b->val.s_value;
+    } break;
+    case ObjType::Boolean: {
+      return a->val.i_value == b->val.i_value;
+    } break;
+    case ObjType::List: {
+      if (a->val.l_value->size() != b->val.l_value->size()) return false;
+      for (int i = 0; i < a->val.l_value->size(); ++i) {
+        auto *a_member = a->val.l_value->at(i);
+        auto *b_member = b->val.l_value->at(i);
+        if (!objects_equal_bare(a_member, b_member)) return false;
+      }
+      return true;
+    } break;
+    case ObjType::Nil: {
+      return true;
+    } break;
+    case ObjType::Function: {
+      // Comparing by argument list memory address for now. Maybe do something
+      // else later
+      return a->val.f_value.funargs == b->val.f_value.funargs;
+    } break;
+    default:
       return false;
-    for (int i = 0; i < a->val.l_value->size(); ++i) {
-      auto *a_member = a->val.l_value->at(i);
-      auto *b_member = b->val.l_value->at(i);
-      if (!objects_equal_bare(a_member, b_member))
-        return false;
-    }
-    return true;
-  } break;
-  case ObjType::Nil: {
-    return true;
-  } break;
-  case ObjType::Function: {
-    // Comparing by argument list memory address for now. Maybe do something
-    // else later
-    return a->val.f_value.funargs == b->val.f_value.funargs;
-  } break;
-  default:
-    return false;
   }
 }
 
@@ -705,20 +701,19 @@ Object *objects_equal(Object *a, Object *b) {
 bool objects_gt_bare(Object *a, Object *b) {
   // Objects of different types cannot be compared
   // TODO: Maybe return nil instead?
-  if (a->type != b->type)
-    return false_obj;
+  if (a->type != b->type) return false_obj;
   switch (a->type) {
-  case ObjType::Number: {
-    return a->val.i_value > b->val.i_value;
-  } break;
-  case ObjType::String: {
-    return a->val.s_value > b->val.s_value;
-  } break;
-  case ObjType::Boolean: {
-    return a->val.i_value > b->val.i_value;
-  } break;
-  default:
-    return false_obj;
+    case ObjType::Number: {
+      return a->val.i_value > b->val.i_value;
+    } break;
+    case ObjType::String: {
+      return a->val.s_value > b->val.s_value;
+    } break;
+    case ObjType::Boolean: {
+      return a->val.i_value > b->val.i_value;
+    } break;
+    default:
+      return false_obj;
   }
 }
 
@@ -729,20 +724,19 @@ Object *objects_gt(Object *a, Object *b) {
 bool objects_lt_bare(Object *a, Object *b) {
   // Objects of different types cannot be compared
   // TODO: Maybe return nil instead?
-  if (a->type != b->type)
-    return false_obj;
+  if (a->type != b->type) return false_obj;
   switch (a->type) {
-  case ObjType::Number: {
-    return a->val.i_value < b->val.i_value;
-  } break;
-  case ObjType::String: {
-    return a->val.s_value < b->val.s_value;
-  } break;
-  case ObjType::Boolean: {
-    return a->val.i_value < b->val.i_value;
-  } break;
-  default:
-    return false_obj;
+    case ObjType::Number: {
+      return a->val.i_value < b->val.i_value;
+    } break;
+    case ObjType::String: {
+      return a->val.s_value < b->val.s_value;
+    } break;
+    case ObjType::Boolean: {
+      return a->val.i_value < b->val.i_value;
+    } break;
+    default:
+      return false_obj;
   }
 }
 
@@ -785,8 +779,7 @@ Object *car_builtin(Object *expr) {
     delete s;
     return nil_obj;
   }
-  if (list_length(list_to_operate_on) < 1)
-    return nil_obj;
+  if (list_length(list_to_operate_on) < 1) return nil_obj;
   return list_index(list_to_operate_on, 0);
 }
 
@@ -798,8 +791,7 @@ Object *cadr_builtin(Object *expr) {
     delete s;
     return nil_obj;
   }
-  if (list_length(list_to_operate_on) < 2)
-    return nil_obj;
+  if (list_length(list_to_operate_on) < 2) return nil_obj;
   return list_index(list_to_operate_on, 1);
 }
 
@@ -819,8 +811,7 @@ Object *cdr_builtin(Object *expr) {
     printf("cdr can only operate on lists\n");
     return nil_obj;
   }
-  if (list_length(list_to_operate_on) < 1)
-    return list_to_operate_on;
+  if (list_length(list_to_operate_on) < 1) return list_to_operate_on;
   for (int i = 1; i < list_length(list_to_operate_on); ++i) {
     auto *evaluated_item = list_index(list_to_operate_on, i);
     list_append_inplace(new_list, evaluated_item);
@@ -882,9 +873,10 @@ Object *call_function(Object *fobj, Object *args_list) {
       if (arg_idx != (arglistl->size() - 2)) {
         // if the dot is not on the pre-last position, print out an error
         // message
-        printf("apply (.) operator in function definition incorrectly placed. "
-               "It should be at the pre-last position, followed by a vararg "
-               "list argument name\n");
+        printf(
+            "apply (.) operator in function definition incorrectly placed. "
+            "It should be at the pre-last position, followed by a vararg "
+            "list argument name\n");
         return nil_obj;
       }
       // read all arguments into a list and bind it to the local scope
@@ -899,18 +891,20 @@ Object *call_function(Object *fobj, Object *args_list) {
           // the dot must be on the pre-last position
           if (provided_arg_idx != provided_arglistl->size() - 2) {
             auto *fn = fun_name(fobj);
-            printf("Error while calling %s: dot notation on the caller side "
-                   "must be followed by a list argument containing the "
-                   "variadic expansion list\n",
-                   fn);
+            printf(
+                "Error while calling %s: dot notation on the caller side "
+                "must be followed by a list argument containing the "
+                "variadic expansion list\n",
+                fn);
             return nil_obj;
           }
           // expand the rest
           auto *provided_variadic_list =
               eval_expr(provided_arglistl->at(provided_arg_idx + 1));
           if (provided_variadic_list->type != ObjType::List) {
-            printf("Error: dot operator on caller side should always be "
-                   "followed by a list argument\n");
+            printf(
+                "Error: dot operator on caller side should always be "
+                "followed by a list argument\n");
             return nil_obj;
           }
           for (int exp_idx = 0; exp_idx < list_length(provided_variadic_list);
@@ -957,60 +951,59 @@ Object *eval_expr(Object *expr) {
     return expr;
   }
   switch (expr->type) {
-  case ObjType::Symbol: {
-    // Look up value of the symbol in the symbol table
-    auto *syms = expr->val.s_value;
-    auto *res = get_symbol(*syms);
-    bool present_in_symtable = res != nullptr;
-    if (!present_in_symtable) {
-      printf("Symbol not found: \"%s\"\n", syms->data());
-      return nil_obj;
-    }
-    // If object is not yet evaluated
-    if (!(res->flags & OF_EVALUATED)) {
-      // Evaluate & save in the symbol table
-      res = eval_expr(res);
-      res->flags |= OF_EVALUATED;
-      set_symbol(*syms, res);
-    }
-    return res;
-  } break;
-  case ObjType::List: {
-    if (expr->flags & OF_LIST_LITERAL) {
-      auto *items = list_members(expr);
-      for (int i = 0; i < items->size(); ++i) {
-        // do we need to evaluate here?
-        (*items)[i] = eval_expr(items->at(i));
+    case ObjType::Symbol: {
+      // Look up value of the symbol in the symbol table
+      auto *syms = expr->val.s_value;
+      auto *res = get_symbol(*syms);
+      bool present_in_symtable = res != nullptr;
+      if (!present_in_symtable) {
+        printf("Symbol not found: \"%s\"\n", syms->data());
+        return nil_obj;
       }
-      expr->flags |= OF_EVALUATED;
+      // If object is not yet evaluated
+      if (!(res->flags & OF_EVALUATED)) {
+        // Evaluate & save in the symbol table
+        res = eval_expr(res);
+        res->flags |= OF_EVALUATED;
+        set_symbol(*syms, res);
+      }
+      return res;
+    } break;
+    case ObjType::List: {
+      if (expr->flags & OF_LIST_LITERAL) {
+        auto *items = list_members(expr);
+        for (int i = 0; i < items->size(); ++i) {
+          // do we need to evaluate here?
+          (*items)[i] = eval_expr(items->at(i));
+        }
+        expr->flags |= OF_EVALUATED;
+        return expr;
+      }
+      auto *l = expr->val.l_value;
+      int elems_len = l->size();
+      if (elems_len == 0) return expr;
+      auto *op = l->at(0);
+      auto *callable = eval_expr(op);
+      if (!is_callable(callable)) {
+        auto *s = obj_to_string_bare(callable);
+        printf("Error: %s is not callable\n", s->data());
+        delete s;
+        return nil_obj;
+      }
+      bool is_builtin = callable->flags & OF_BUILTIN;
+      if (is_builtin) {
+        // Built-in function, no need to do much
+        auto *bhandler = callable->val.bf_value.builtin_handler;
+        return bhandler(expr);
+      }
+      // User-defined function
+      return call_function(callable, expr);
+    }
+    default: {
+      // For other types (string, number, nil) there is no need to evaluate them
+      // as they are in their final form
       return expr;
-    }
-    auto *l = expr->val.l_value;
-    int elems_len = l->size();
-    if (elems_len == 0)
-      return expr;
-    auto *op = l->at(0);
-    auto *callable = eval_expr(op);
-    if (!is_callable(callable)) {
-      auto *s = obj_to_string_bare(callable);
-      printf("Error: %s is not callable\n", s->data());
-      delete s;
-      return nil_obj;
-    }
-    bool is_builtin = callable->flags & OF_BUILTIN;
-    if (is_builtin) {
-      // Built-in function, no need to do much
-      auto *bhandler = callable->val.bf_value.builtin_handler;
-      return bhandler(expr);
-    }
-    // User-defined function
-    return call_function(callable, expr);
-  }
-  default: {
-    // For other types (string, number, nil) there is no need to evaluate them
-    // as they are in their final form
-    return expr;
-  } break;
+    } break;
   }
 }
 
@@ -1165,20 +1158,21 @@ Arguments *parse_args(int argc, char **argv) {
       } else {
         // short argument (expect one character)
         if (arg_len != 2) {
-          printf("Short arguments starting with a single dash can only be "
-                 "followed by a single character. Found %s\n",
-                 arg);
+          printf(
+              "Short arguments starting with a single dash can only be "
+              "followed by a single character. Found %s\n",
+              arg);
           return nullptr;
         }
         char arg_payload = *(arg + 1);
         switch (arg_payload) {
-        case 'i': {
-          res->run_interp = true;
-        } break;
-        default: {
-          printf("Error: Unknown argument: %s\n", arg);
-          return nullptr;
-        } break;
+          case 'i': {
+            res->run_interp = true;
+          } break;
+          default: {
+            printf("Error: Unknown argument: %s\n", arg);
+            return nullptr;
+          } break;
         }
       }
     } else {
