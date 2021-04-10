@@ -5,9 +5,18 @@
 #include <chrono>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
-#include <thread>
+
+#define WIN32 1
+
+#if WIN32
+// NOLINTNEXTLINE
+#include "windows.h"
+// NOLINTNEXTLINE
+#include "psapi.h"
+#endif
 
 #define DEBUG 1
 
@@ -20,6 +29,21 @@
   } while (0)
 #else
 #define assert_stmt
+#endif
+
+////////////////////////////////
+// Utility
+////////////////////////////////
+
+#if WIN32
+// returns total virtual memory usage for the current process (in bytes)
+size_t get_total_memory_usage() {
+  PROCESS_MEMORY_COUNTERS_EX pmc;
+  GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS *)&pmc,
+                       sizeof(pmc));
+  SIZE_T virtualMemUsedByMe = pmc.PrivateUsage;
+  return virtualMemUsedByMe;
+}
 #endif
 
 // TODO: Wrap in a struct
@@ -206,117 +230,6 @@ void list_append_inplace(Object *list, Object *item) {
   // argument list so we have to increment ref count for each object. Somehow
   // abstract that into a separate function call? like "ref" for example?
   list->val.l_value->push_back(item);
-}
-
-bool objects_equal_bare(Object *a, Object *b) {
-  // Objects of different types cannot be equal
-  if (a->type != b->type) return false;
-  switch (a->type) {
-    case ObjType::Number: {
-      return a->val.i_value == b->val.i_value;
-    } break;
-    case ObjType::String: {
-      return a->val.s_value == b->val.s_value;
-    } break;
-    case ObjType::Boolean: {
-      return a->val.i_value == b->val.i_value;
-    } break;
-    case ObjType::List: {
-      if (a->val.l_value->size() != b->val.l_value->size()) return false;
-      for (int i = 0; i < a->val.l_value->size(); ++i) {
-        auto *a_member = a->val.l_value->at(i);
-        auto *b_member = b->val.l_value->at(i);
-        if (!objects_equal_bare(a_member, b_member)) return false;
-      }
-      return true;
-    } break;
-    case ObjType::Nil: {
-      return true;
-    } break;
-    case ObjType::Function: {
-      // Comparing by argument list memory address for now. Maybe do something
-      // else later
-      return a->val.f_value.funargs == b->val.f_value.funargs;
-    } break;
-    default:
-      return false;
-  }
-}
-
-Object *objects_equal(Object *a, Object *b) {
-  return bool_obj_from(objects_equal_bare(a, b));
-}
-
-bool objects_gt_bare(Object *a, Object *b) {
-  // Objects of different types cannot be compared
-  // TODO: Maybe return nil instead?
-  if (a->type != b->type) return false_obj;
-  switch (a->type) {
-    case ObjType::Number: {
-      return a->val.i_value > b->val.i_value;
-    } break;
-    case ObjType::String: {
-      return a->val.s_value > b->val.s_value;
-    } break;
-    case ObjType::Boolean: {
-      return a->val.i_value > b->val.i_value;
-    } break;
-    default:
-      return false_obj;
-  }
-}
-
-Object *objects_gt(Object *a, Object *b) {
-  return bool_obj_from(objects_gt_bare(a, b));
-}
-
-bool objects_lt_bare(Object *a, Object *b) {
-  // Objects of different types cannot be compared
-  // TODO: Maybe return nil instead?
-  if (a->type != b->type) return false_obj;
-  switch (a->type) {
-    case ObjType::Number: {
-      return a->val.i_value < b->val.i_value;
-    } break;
-    case ObjType::String: {
-      return a->val.s_value < b->val.s_value;
-    } break;
-    case ObjType::Boolean: {
-      return a->val.i_value < b->val.i_value;
-    } break;
-    default:
-      return false_obj;
-  }
-}
-
-Object *objects_lt(Object *a, Object *b) {
-  return bool_obj_from(objects_lt_bare(a, b));
-}
-
-bool is_truthy(Object *obj) {
-  switch (obj->type) {
-    case ObjType::Boolean: {
-      return obj->val.i_value != 0;
-    } break;
-    case ObjType::Number: {
-      return obj->val.i_value != 0;
-    } break;
-    case ObjType::String: {
-      return obj->val.s_value->size() != 0;
-    } break;
-    case ObjType::List: {
-      return obj->val.l_value->size() != 0;
-    } break;
-    case ObjType::Nil: {
-      return false;
-    } break;
-    case ObjType::Function: {
-      return true;
-    } break;
-    default: {
-      return false;
-    } break;
-  }
 }
 
 inline char const *fun_name(Object *fun) {
@@ -509,6 +422,156 @@ void print_obj(Object *obj, int indent = 0) {
     } break;
     default: {
       printf("Unknown object of type %i\n", obj->type);
+    } break;
+  }
+}
+
+bool objects_equal_bare(Object *a, Object *b) {
+  // Objects of different types cannot be equal
+  if (a->type != b->type) return false;
+  switch (a->type) {
+    case ObjType::Number: {
+      return a->val.i_value == b->val.i_value;
+    } break;
+    case ObjType::String: {
+      return a->val.s_value == b->val.s_value;
+    } break;
+    case ObjType::Boolean: {
+      return a->val.i_value == b->val.i_value;
+    } break;
+    case ObjType::List: {
+      if (a->val.l_value->size() != b->val.l_value->size()) return false;
+      for (int i = 0; i < a->val.l_value->size(); ++i) {
+        auto *a_member = a->val.l_value->at(i);
+        auto *b_member = b->val.l_value->at(i);
+        if (!objects_equal_bare(a_member, b_member)) return false;
+      }
+      return true;
+    } break;
+    case ObjType::Nil: {
+      return true;
+    } break;
+    case ObjType::Function: {
+      // Comparing by argument list memory address for now. Maybe do something
+      // else later
+      return a->val.f_value.funargs == b->val.f_value.funargs;
+    } break;
+    default:
+      return false;
+  }
+}
+
+Object *objects_equal(Object *a, Object *b) {
+  return bool_obj_from(objects_equal_bare(a, b));
+}
+
+bool objects_gt_bare(Object *a, Object *b) {
+  // Objects of different types cannot be compared
+  // TODO: Maybe return nil instead?
+  if (a->type != b->type) return false_obj;
+  switch (a->type) {
+    case ObjType::Number: {
+      return a->val.i_value > b->val.i_value;
+    } break;
+    case ObjType::String: {
+      return a->val.s_value > b->val.s_value;
+    } break;
+    case ObjType::Boolean: {
+      return a->val.i_value > b->val.i_value;
+    } break;
+    default:
+      return false_obj;
+  }
+}
+
+Object *objects_gt(Object *a, Object *b) {
+  return bool_obj_from(objects_gt_bare(a, b));
+}
+
+bool objects_lt_bare(Object *a, Object *b) {
+  // Objects of different types cannot be compared
+  // TODO: Maybe return nil instead?
+  if (a->type != b->type) return false_obj;
+  switch (a->type) {
+    case ObjType::Number: {
+      return a->val.i_value < b->val.i_value;
+    } break;
+    case ObjType::String: {
+      return a->val.s_value < b->val.s_value;
+    } break;
+    case ObjType::Boolean: {
+      return a->val.i_value < b->val.i_value;
+    } break;
+    default:
+      return false_obj;
+  }
+}
+
+Object *objects_lt(Object *a, Object *b) {
+  return bool_obj_from(objects_lt_bare(a, b));
+}
+
+Object *objects_div(Object *a, Object *b) {
+  switch (a->type) {
+    case ObjType::Number: {
+      auto val = a->val.i_value / b->val.i_value;
+      return create_num_obj(val);
+    } break;
+    default: {
+      error_binop_not_defined("Division", a, b);
+      return nil_obj;
+    } break;
+  }
+}
+
+Object *objects_pow(Object *a, Object *b) {
+  switch (a->type) {
+    case ObjType::Number: {
+      auto val = pow(a->val.i_value, b->val.i_value);
+      return create_num_obj(val);
+    } break;
+    default: {
+      error_binop_not_defined("Power", a, b);
+      return nil_obj;
+    } break;
+  }
+}
+
+Object *objects_mul(Object *a, Object *b) {
+  switch (a->type) {
+    case ObjType::Number: {
+      auto val = a->val.i_value * b->val.i_value;
+      return create_num_obj(val);
+    } break;
+    default: {
+      error_binop_not_defined("Multiplication", a, b);
+      return nil_obj;
+    } break;
+  }
+}
+
+bool is_truthy(Object *obj) {
+  switch (obj->type) {
+    case ObjType::Boolean: {
+      return obj->val.i_value != 0;
+    } break;
+    case ObjType::Number: {
+      return obj->val.i_value != 0;
+    } break;
+    case ObjType::String: {
+      return obj->val.s_value->size() != 0;
+    } break;
+    case ObjType::List: {
+      return obj->val.l_value->size() != 0;
+    } break;
+    case ObjType::Nil: {
+      return false;
+    } break;
+    case ObjType::Function: {
+      return true;
+    } break;
+    default: {
+      return false;
     } break;
   }
 }
@@ -782,6 +845,18 @@ Object *lt_builtin(Object *expr) {
   return binary_builtin(expr, "<", objects_lt);
 }
 
+Object *div_objects_builtin(Object *expr) {
+  return binary_builtin(expr, "/", objects_div);
+}
+
+Object *mul_objects_builtin(Object *expr) {
+  return binary_builtin(expr, "*", objects_mul);
+}
+
+Object *pow_objects_builtin(Object *expr) {
+  return binary_builtin(expr, "**", objects_pow);
+}
+
 Object *car_builtin(Object *expr) {
   auto *list_to_operate_on = eval_expr(list_index(expr, 1));
   if (!is_list(list_to_operate_on)) {
@@ -858,8 +933,8 @@ inline void error_builtin_arg_mismatch_function(char const *fname,
                                                 Object const *expr) {
   // 1 for the function name to call
   size_t got = list_length(expr) - 1;
-  printf("Error: Built-in %s expected %llu arguments, got %llu\n", fname, expected,
-         got);
+  printf("Error: Built-in %s expected %llu arguments, got %llu\n", fname,
+         expected, got);
 }
 
 inline bool check_builtin_n_params(char const *bname, Object const *expr,
@@ -878,13 +953,12 @@ inline bool check_builtin_no_params(char const *bname, Object const *expr) {
 
 Object *memtotal_builtin(Object *expr) {
   // TODO: Implement
-  size_t memtotal = 0;
+  size_t memtotal = get_total_memory_usage();
   auto *s = new std::string(std::to_string(memtotal));
   return create_str_obj(s);
 }
 
 Object *timeit_builtin(Object *expr) {
-  size_t memtotal = 0;
   if (!check_builtin_n_params("timeit", expr, 1)) return nil_obj;
   auto *expr_to_time = list_index(expr, 1);
   using std::chrono::duration;
@@ -902,7 +976,6 @@ Object *timeit_builtin(Object *expr) {
 }
 
 Object *sleep_builtin(Object *expr) {
-  size_t memtotal = 0;
   if (!check_builtin_n_params("sleep", expr, 1)) return nil_obj;
   auto *ms_num_obj = list_index(expr, 1);
   auto ms = ms_num_obj->val.i_value;
@@ -1139,6 +1212,7 @@ bool load_file(char const *file_to_read) {
   }
   return true;
 }
+
 void init_interp() {
   // Initialize global symbol table
   symtable = new SymTable();
@@ -1155,6 +1229,9 @@ void init_interp() {
   set_symbol("else", else_obj);
   create_builtin_function_and_save("+", (add_objects));
   create_builtin_function_and_save("-", (sub_objects));
+  create_builtin_function_and_save("/", (div_objects_builtin));
+  create_builtin_function_and_save("*", (mul_objects_builtin));
+  create_builtin_function_and_save("**", (pow_objects_builtin));
   create_builtin_function_and_save("=", (equal_builtin));
   create_builtin_function_and_save(">", (gt_builtin));
   create_builtin_function_and_save("<", (lt_builtin));
