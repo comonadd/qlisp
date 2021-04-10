@@ -1,3 +1,4 @@
+#include <iostream>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1088,15 +1089,100 @@ void init_interp() {
   load_file(join_paths(STDLIB_PATH, "basic.lisp").data());
 }
 
+void run_interp() {
+  std::string input;
+  bool is_running = true;
+  static std::string prompt = ">> ";
+  while (is_running) {
+    std::cout << prompt;
+    char c;
+    while (std::cin.get(c) && c != '.' && c != '\n') {
+      input += c;
+    }
+    if (input == ".exit") {
+      is_running = false;
+      continue;
+    }
+    text = input.data();
+    text_pos = 0;
+    text_len = input.size();
+    auto *e = read_expr();
+    auto *res = eval_expr(e);
+    auto *str_repr = obj_to_string_bare(res);
+    std::cout << str_repr->data() << '\n';
+    delete str_repr;
+    input = "";
+  }
+}
+
+struct Arguments {
+  std::vector<char *> ordered_args;
+  bool run_interp = false;
+};
+
+Arguments *parse_args(int argc, char **argv) {
+  auto *res = new Arguments();
+  int argidx = 1;
+  while (argidx < argc) {
+    char *arg = argv[argidx];
+    if (arg[0] == '-') {
+      int arg_len = strlen(arg);
+      if (arg_len == 1) {
+        printf(
+            "Argument at position %i is invalid: Dash is followed by nothing",
+            argidx);
+        return nullptr;
+      }
+      if (arg[1] == '-') {
+        // long named argument
+        char *arg_payload = arg + 2;
+        if (!strcmp(arg_payload, "interpreter")) {
+          res->run_interp = true;
+        } else {
+          printf("Error: Unknown argument %s\n", arg);
+          return nullptr;
+        }
+      } else {
+        // short argument (expect one character)
+        if (arg_len != 2) {
+          printf("Short arguments starting with a single dash can only be "
+                 "followed by a single character. Found %s\n",
+                 arg);
+          return nullptr;
+        }
+        char arg_payload = *(arg + 1);
+        switch (arg_payload) {
+        case 'i': {
+          res->run_interp = true;
+        } break;
+        default: {
+          printf("Error: Unknown argument: %s\n", arg);
+          return nullptr;
+        } break;
+        }
+      }
+    } else {
+      // read ordered argument
+      res->ordered_args.push_back(arg);
+    }
+    ++argidx;
+  }
+  return res;
+}
+
 int main(int argc, char **argv) {
-  if (argc < 2) {
-    printf("You should provide at least one file path to execute\n");
+  Arguments *args = parse_args(argc, argv);
+  if (args == nullptr) {
     return -1;
   }
   init_interp();
-  for (int i = 1; i < argc; ++i) {
-    char *file_to_read = argv[i];
-    load_file(file_to_read);
+  if (args->run_interp) {
+    printf("Running interpreter\n");
+    run_interp();
+  } else {
+    for (auto &file_to_read : args->ordered_args) {
+      load_file(file_to_read);
+    }
   }
   return 0;
 }
