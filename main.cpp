@@ -352,8 +352,7 @@ Object *sub_two_objects(Object *a, Object *b) {
       return create_num_obj(v);
     } break;
     default: {
-      printf("Substraction operation for objects of type %i is not defined\n",
-             a->type);
+      error_binop_not_defined("Substraction", a, b);
       return nil_obj;
     }
   }
@@ -982,7 +981,15 @@ Object *sleep_builtin(Object *expr) {
   return nil_obj;
 }
 
+static size_t call_stack_size = 0;
+const size_t MAX_STACK_SIZE = 256;
+
 Object *call_function(Object *fobj, Object *args_list) {
+  if (call_stack_size > MAX_STACK_SIZE) {
+    printf("Error: Max call stack size reached\n");
+    return nil_obj;
+  }
+
   // Set arguments in the local scope
   auto *arglistl = fobj->val.f_value.funargs->val.l_value;
   auto *provided_arglistl = args_list->val.l_value;
@@ -1076,12 +1083,14 @@ Object *call_function(Object *fobj, Object *args_list) {
   // Starting from 1 because 1st index is function name
   int body_expr_idx = 2;
   Object *last_evaluated = nil_obj;
+  ++call_stack_size;
   enter_scope_with(locals);
   while (body_expr_idx < body_length) {
     last_evaluated = eval_expr(bodyl->at(body_expr_idx));
     ++body_expr_idx;
   }
   exit_scope();
+  --call_stack_size;
   return last_evaluated;
 }
 
