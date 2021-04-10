@@ -2,10 +2,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <thread>
 
 #define DEBUG 1
 
@@ -50,8 +52,8 @@ inline bool can_be_a_part_of_symbol(char ch) {
 
 enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean };
 
-static char *otts[] = {"List", "Symbol",   "String", "Number",
-                       "Nil",  "Function", "Boolean"};
+static char const *otts[] = {"List", "Symbol",   "String", "Number",
+                             "Nil",  "Function", "Boolean"};
 
 int OF_BUILTIN = 0x1;
 int OF_LAMBDA = 0x2;
@@ -71,7 +73,7 @@ struct Object {
     std::string *s_value;
     std::vector<Object *> *l_value;
     struct {
-      char *name;
+      char const *name;
       Builtin builtin_handler;
     } bf_value;
     struct {
@@ -136,6 +138,8 @@ void exit_scope() {
 
 // Object helpers
 
+char const *obj_type_to_str(ObjType ot) { return otts[(int)ot]; }
+
 Object *new_object(ObjType type, int flags = 0) {
   Object *res = (Object *)malloc(sizeof(*res));
   res->type = type;
@@ -187,12 +191,141 @@ inline Object *create_data_list_obj() {
   res->flags |= OF_EVALUATED;
   return res;
 }
-inline size_t list_length(Object *list) { return list->val.l_value->size(); }
+inline size_t list_length(Object const *list) {
+  return list->val.l_value->size();
+}
 inline Object *list_index(Object *list, size_t i) {
   return list->val.l_value->at(i);
 }
 inline std::vector<Object *> *list_members(Object *list) {
   return list->val.l_value;
+}
+bool is_list(Object *obj) { return obj->type == ObjType::List; }
+void list_append_inplace(Object *list, Object *item) {
+  // we probably need to track dependency of the new list on CDR objects of the
+  // argument list so we have to increment ref count for each object. Somehow
+  // abstract that into a separate function call? like "ref" for example?
+  list->val.l_value->push_back(item);
+}
+
+bool objects_equal_bare(Object *a, Object *b) {
+  // Objects of different types cannot be equal
+  if (a->type != b->type) return false;
+  switch (a->type) {
+    case ObjType::Number: {
+      return a->val.i_value == b->val.i_value;
+    } break;
+    case ObjType::String: {
+      return a->val.s_value == b->val.s_value;
+    } break;
+    case ObjType::Boolean: {
+      return a->val.i_value == b->val.i_value;
+    } break;
+    case ObjType::List: {
+      if (a->val.l_value->size() != b->val.l_value->size()) return false;
+      for (int i = 0; i < a->val.l_value->size(); ++i) {
+        auto *a_member = a->val.l_value->at(i);
+        auto *b_member = b->val.l_value->at(i);
+        if (!objects_equal_bare(a_member, b_member)) return false;
+      }
+      return true;
+    } break;
+    case ObjType::Nil: {
+      return true;
+    } break;
+    case ObjType::Function: {
+      // Comparing by argument list memory address for now. Maybe do something
+      // else later
+      return a->val.f_value.funargs == b->val.f_value.funargs;
+    } break;
+    default:
+      return false;
+  }
+}
+
+Object *objects_equal(Object *a, Object *b) {
+  return bool_obj_from(objects_equal_bare(a, b));
+}
+
+bool objects_gt_bare(Object *a, Object *b) {
+  // Objects of different types cannot be compared
+  // TODO: Maybe return nil instead?
+  if (a->type != b->type) return false_obj;
+  switch (a->type) {
+    case ObjType::Number: {
+      return a->val.i_value > b->val.i_value;
+    } break;
+    case ObjType::String: {
+      return a->val.s_value > b->val.s_value;
+    } break;
+    case ObjType::Boolean: {
+      return a->val.i_value > b->val.i_value;
+    } break;
+    default:
+      return false_obj;
+  }
+}
+
+Object *objects_gt(Object *a, Object *b) {
+  return bool_obj_from(objects_gt_bare(a, b));
+}
+
+bool objects_lt_bare(Object *a, Object *b) {
+  // Objects of different types cannot be compared
+  // TODO: Maybe return nil instead?
+  if (a->type != b->type) return false_obj;
+  switch (a->type) {
+    case ObjType::Number: {
+      return a->val.i_value < b->val.i_value;
+    } break;
+    case ObjType::String: {
+      return a->val.s_value < b->val.s_value;
+    } break;
+    case ObjType::Boolean: {
+      return a->val.i_value < b->val.i_value;
+    } break;
+    default:
+      return false_obj;
+  }
+}
+
+Object *objects_lt(Object *a, Object *b) {
+  return bool_obj_from(objects_lt_bare(a, b));
+}
+
+bool is_truthy(Object *obj) {
+  switch (obj->type) {
+    case ObjType::Boolean: {
+      return obj->val.i_value != 0;
+    } break;
+    case ObjType::Number: {
+      return obj->val.i_value != 0;
+    } break;
+    case ObjType::String: {
+      return obj->val.s_value->size() != 0;
+    } break;
+    case ObjType::List: {
+      return obj->val.l_value->size() != 0;
+    } break;
+    case ObjType::Nil: {
+      return false;
+    } break;
+    case ObjType::Function: {
+      return true;
+    } break;
+    default: {
+      return false;
+    } break;
+  }
+}
+
+inline char const *fun_name(Object *fun) {
+  assert_stmt(fun->type == ObjType::Function,
+              "fun_name only accepts functions");
+  if (fun->flags & OF_BUILTIN) {
+    return fun->val.bf_value.name;
+  }
+  return list_index(fun->val.f_value.funargs, 0)->val.s_value->data();
 }
 
 Object *create_sym_obj(char const *s) {
@@ -221,31 +354,163 @@ Object *create_num_obj(int v) {
   return res;
 }
 
-void list_append_inplace(Object *list, Object *item) {
-  // we probably need to track dependency of the new list on CDR objects of the
-  // argument list so we have to increment ref count for each object. Somehow
-  // abstract that into a separate function call? like "ref" for example?
-  list->val.l_value->push_back(item);
+// This function returns a new string representing the object
+// You can delete it safely without affecting the object
+std::string *obj_to_string_bare(Object *obj) {
+  switch (obj->type) {
+    case ObjType::String: {
+      return new std::string(*obj->val.s_value);
+    } break;
+    case ObjType::Number: {
+      auto *s = new std::string(std::to_string(obj->val.i_value));
+      return s;
+    } break;
+    case ObjType::Function: {
+      auto const *fn = fun_name(obj);
+      std::string *s = new std::string("[Function ");
+      if (obj->flags & OF_BUILTIN) {
+        *s += "(builtin) ";
+      }
+      *s += fn;
+      *s += ']';
+      return s;
+    } break;
+    case ObjType::List: {
+      auto *res = new std::string("(");
+      for (int i = 0; i < list_length(obj) - 1; ++i) {
+        auto *member = list_index(obj, i);
+        *res += *obj_to_string_bare(member);
+        *res += ' ';
+      }
+      *res += *obj_to_string_bare(list_index(obj, list_length(obj) - 1));
+      *res += ')';
+      return res;
+    } break;
+    case ObjType::Boolean: {
+      if (obj == false_obj) return new std::string("false");
+      if (obj == true_obj) return new std::string("true");
+      assert_stmt(false, "Impossible case");
+      return nullptr;
+    } break;
+    default: {
+      return new std::string("nil");
+    }
+  }
 }
 
-Object *create_builtin_fobj(char *name, Builtin handler) {
+Object *obj_to_string(Object *obj) {
+  // TODO: Implement for symbols
+  switch (obj->type) {
+    case ObjType::String: {
+      return obj;
+    } break;
+    default: {
+      auto s = obj_to_string_bare(obj);
+      return create_str_obj(s);
+    } break;
+  }
+}
+
+Object *create_builtin_fobj(char const *name, Builtin handler) {
   Object *res = new_object(ObjType::Function, OF_BUILTIN | OF_EVALUATED);
   res->val.bf_value.builtin_handler = handler;
   res->val.bf_value.name = name;
   return res;
 }
 
-void create_builtin_function_and_save(char *name, Builtin handler) {
-  set_symbol(name, create_builtin_fobj(name, handler));
+////////////////////////////////////////
+// Binary operations
+////////////////////////////////////////
+
+void error_binop_not_defined(char const *opname, Object const *a,
+                             Object const *b) {
+  printf("Error: %s operation for objects of type %s and %s is not defined\n",
+         opname, obj_type_to_str(a->type), obj_type_to_str(b->type));
 }
 
-inline char const *fun_name(Object *fun) {
-  assert_stmt(fun->type == ObjType::Function,
-              "fun_name only accepts functions");
-  if (fun->flags & OF_BUILTIN) {
-    return fun->val.bf_value.name;
+Object *sub_two_objects(Object *a, Object *b) {
+  switch (a->type) {
+    case ObjType::Number: {
+      if (b->type != ObjType::Number) {
+        printf("Can only substract numbers from other numbers\n");
+        return nil_obj;
+      }
+      auto v = a->val.i_value - b->val.i_value;
+      return create_num_obj(v);
+    } break;
+    default: {
+      printf("Substraction operation for objects of type %i is not defined\n",
+             a->type);
+      return nil_obj;
+    }
   }
-  return list_index(fun->val.f_value.funargs, 0)->val.s_value->data();
+}
+
+Object *add_two_objects(Object *a, Object *b) {
+  static char const *opname = "Addition";
+  switch (a->type) {
+    case ObjType::Number: {
+      if (b->type != ObjType::Number) {
+        printf("Can only add other numbers to numbers\n");
+        return nil_obj;
+      }
+      auto v = a->val.i_value + b->val.i_value;
+      return create_num_obj(v);
+    } break;
+    case ObjType::String: {
+      if (b->type != ObjType::String) {
+        error_binop_not_defined(opname, a, b);
+        return nil_obj;
+      }
+      auto *v = new std::string(*a->val.s_value + *b->val.s_value);
+      return create_str_obj(v);
+    } break;
+    default: {
+      error_binop_not_defined(opname, a, b);
+      return nil_obj;
+    }
+  }
+}
+
+void print_obj(Object *obj, int indent = 0) {
+  char indent_s[16];
+  memset(indent_s, ' ', indent);
+  indent_s[indent] = '\0';
+  switch (obj->type) {
+    case ObjType::Number: {
+      printf("%s[Num] %i", indent_s, obj->val.i_value);
+    } break;
+    case ObjType::String: {
+      printf("%s[Str] %s", indent_s, obj->val.s_value->data());
+    } break;
+    case ObjType::Symbol: {
+      printf("%s[Sym] %s", indent_s, obj->val.s_value->data());
+    } break;
+    case ObjType::Function: {
+      if (obj->flags & OF_BUILTIN) {
+        auto *funname = obj->val.bf_value.name;
+        printf("%s[Builtin] %s\n", indent_s, funname);
+      } else {
+        auto fval = obj->val.f_value;
+        auto *funname = fval.funargs->val.l_value->at(0)->val.s_value;
+        printf("%s[Function] %s\n", indent_s, funname->data());
+      }
+    } break;
+    case ObjType::List: {
+      printf("%s[List] %llu: \n", indent_s, obj->val.l_value->size());
+      for (int i = 0; i < obj->val.l_value->size(); ++i) {
+        auto *lobj = obj->val.l_value->at(i);
+        print_obj(lobj, indent + 1);
+        printf("\n");
+      }
+    } break;
+    case ObjType::Nil: {
+      printf("%s[Nil]", indent_s);
+    } break;
+    default: {
+      printf("Unknown object of type %i\n", obj->type);
+    } break;
+  }
 }
 
 // Parser
@@ -354,82 +619,7 @@ Object *read_expr() {
   }
 }
 
-void print_obj(Object *obj, int indent = 0) {
-  char indent_s[16];
-  memset(indent_s, ' ', indent);
-  indent_s[indent] = '\0';
-  switch (obj->type) {
-    case ObjType::Number: {
-      printf("%s[Num] %i", indent_s, obj->val.i_value);
-    } break;
-    case ObjType::String: {
-      printf("%s[Str] %s", indent_s, obj->val.s_value->data());
-    } break;
-    case ObjType::Symbol: {
-      printf("%s[Sym] %s", indent_s, obj->val.s_value->data());
-    } break;
-    case ObjType::Function: {
-      if (obj->flags & OF_BUILTIN) {
-        auto *funname = obj->val.bf_value.name;
-        printf("%s[Builtin] %s\n", indent_s, funname);
-      } else {
-        auto fval = obj->val.f_value;
-        auto *funname = fval.funargs->val.l_value->at(0)->val.s_value;
-        printf("%s[Function] %s\n", indent_s, funname->data());
-      }
-    } break;
-    case ObjType::List: {
-      printf("%s[List] %llu: \n", indent_s, obj->val.l_value->size());
-      for (int i = 0; i < obj->val.l_value->size(); ++i) {
-        auto *lobj = obj->val.l_value->at(i);
-        print_obj(lobj, indent + 1);
-        printf("\n");
-      }
-    } break;
-    case ObjType::Nil: {
-      printf("%s[Nil]", indent_s);
-    } break;
-    default: {
-      printf("Unknown object of type %i\n", obj->type);
-    } break;
-  }
-}
-
-char const *obj_type_to_str(ObjType ot) { return otts[(int)ot]; }
-
 Object *eval_expr(Object *expr);
-
-void error_binop_not_defined(char const *opname, Object const *a,
-                             Object const *b) {
-  printf("Error: %s operation for objects of type %s and %s is not defined\n",
-         opname, obj_type_to_str(a->type), obj_type_to_str(b->type));
-}
-
-Object *add_two_objects(Object *a, Object *b) {
-  static char const *opname = "Addition";
-  switch (a->type) {
-    case ObjType::Number: {
-      if (b->type != ObjType::Number) {
-        printf("Can only add other numbers to numbers\n");
-        return nil_obj;
-      }
-      auto v = a->val.i_value + b->val.i_value;
-      return create_num_obj(v);
-    } break;
-    case ObjType::String: {
-      if (b->type != ObjType::String) {
-        error_binop_not_defined(opname, a, b);
-        return nil_obj;
-      }
-      auto *v = new std::string(*a->val.s_value + *b->val.s_value);
-      return create_str_obj(v);
-    } break;
-    default: {
-      error_binop_not_defined(opname, a, b);
-      return nil_obj;
-    }
-  }
-}
 
 Object *add_objects(Object *expr) {
   auto *l = expr->val.l_value;
@@ -450,24 +640,6 @@ Object *add_objects(Object *expr) {
   return add_res;
 }
 
-Object *sub_two_objects(Object *a, Object *b) {
-  switch (a->type) {
-    case ObjType::Number: {
-      if (b->type != ObjType::Number) {
-        printf("Can only substract numbers from other numbers\n");
-        return nil_obj;
-      }
-      auto v = a->val.i_value - b->val.i_value;
-      return create_num_obj(v);
-    } break;
-    default: {
-      printf("Substraction operation for objects of type %i is not defined\n",
-             a->type);
-      return nil_obj;
-    }
-  }
-}
-
 Object *sub_objects(Object *expr) {
   auto *l = expr->val.l_value;
   int elems_len = l->size();
@@ -486,6 +658,14 @@ Object *sub_objects(Object *expr) {
   return res;
 }
 
+////////////////////////////////////////////////////
+// Built-ins
+////////////////////////////////////////////////////
+
+void create_builtin_function_and_save(char const *name, Builtin handler) {
+  set_symbol(name, create_builtin_fobj(name, handler));
+}
+
 Object *setq_builtin(Object *expr) {
   auto *l = expr->val.l_value;
   int elems_len = l->size();
@@ -498,62 +678,6 @@ Object *setq_builtin(Object *expr) {
   Object *symvalue = eval_expr(l->at(2));
   set_symbol(*symname->val.s_value, symvalue);
   return nil_obj;
-}
-
-// This function returns a new string representing the object
-// You can delete it safely without affecting the object
-std::string *obj_to_string_bare(Object *obj) {
-  switch (obj->type) {
-    case ObjType::String: {
-      return new std::string(*obj->val.s_value);
-    } break;
-    case ObjType::Number: {
-      auto *s = new std::string(std::to_string(obj->val.i_value));
-      return s;
-    } break;
-    case ObjType::Function: {
-      auto const *fn = fun_name(obj);
-      std::string *s = new std::string("[Function ");
-      if (obj->flags & OF_BUILTIN) {
-        *s += "(builtin) ";
-      }
-      *s += fn;
-      *s += ']';
-      return s;
-    } break;
-    case ObjType::List: {
-      auto *res = new std::string("(");
-      for (int i = 0; i < list_length(obj) - 1; ++i) {
-        auto *member = list_index(obj, i);
-        *res += *obj_to_string_bare(member);
-        *res += ' ';
-      }
-      *res += *obj_to_string_bare(list_index(obj, list_length(obj) - 1));
-      *res += ')';
-      return res;
-    } break;
-    case ObjType::Boolean: {
-      if (obj == false_obj) return new std::string("false");
-      if (obj == true_obj) return new std::string("true");
-      assert_stmt(false, "Impossible case");
-    } break;
-    default: {
-      return new std::string("nil");
-    }
-  }
-}
-
-Object *obj_to_string(Object *obj) {
-  // TODO: Implement for symbols
-  switch (obj->type) {
-    case ObjType::String: {
-      return obj;
-    } break;
-    default: {
-      auto s = obj_to_string_bare(obj);
-      return create_str_obj(s);
-    } break;
-  }
 }
 
 Object *print_builtin(Object *expr) {
@@ -614,38 +738,12 @@ Object *lambda_builtin(Object *expr) {
   return funobj;
 }
 
-bool is_truthy(Object *obj) {
-  switch (obj->type) {
-    case ObjType::Boolean: {
-      return obj->val.i_value != 0;
-    } break;
-    case ObjType::Number: {
-      return obj->val.i_value != 0;
-    } break;
-    case ObjType::String: {
-      return obj->val.s_value->size() != 0;
-    } break;
-    case ObjType::List: {
-      return obj->val.l_value->size() != 0;
-    } break;
-    case ObjType::Nil: {
-      return false;
-    } break;
-    case ObjType::Function: {
-      return true;
-    } break;
-    default: {
-      return false;
-    } break;
-  }
-}
-
 Object *if_builtin(Object *expr) {
   auto *l = expr->val.l_value;
   if (l->size() != 4) {
     printf(
-        "if takes exactly 3 arguments: condition, then, and else blocks. "
-        "The function was given %i arguments instead\n",
+        "Error: if takes exactly 3 arguments: condition, then, and else "
+        "blocks. The function was given %llu arguments instead\n",
         l->size());
     return nil_obj;
   }
@@ -659,97 +757,12 @@ Object *if_builtin(Object *expr) {
   }
 }
 
-bool objects_equal_bare(Object *a, Object *b) {
-  // Objects of different types cannot be equal
-  if (a->type != b->type) return false;
-  switch (a->type) {
-    case ObjType::Number: {
-      return a->val.i_value == b->val.i_value;
-    } break;
-    case ObjType::String: {
-      return a->val.s_value == b->val.s_value;
-    } break;
-    case ObjType::Boolean: {
-      return a->val.i_value == b->val.i_value;
-    } break;
-    case ObjType::List: {
-      if (a->val.l_value->size() != b->val.l_value->size()) return false;
-      for (int i = 0; i < a->val.l_value->size(); ++i) {
-        auto *a_member = a->val.l_value->at(i);
-        auto *b_member = b->val.l_value->at(i);
-        if (!objects_equal_bare(a_member, b_member)) return false;
-      }
-      return true;
-    } break;
-    case ObjType::Nil: {
-      return true;
-    } break;
-    case ObjType::Function: {
-      // Comparing by argument list memory address for now. Maybe do something
-      // else later
-      return a->val.f_value.funargs == b->val.f_value.funargs;
-    } break;
-    default:
-      return false;
-  }
-}
-
-Object *objects_equal(Object *a, Object *b) {
-  return bool_obj_from(objects_equal_bare(a, b));
-}
-
-bool objects_gt_bare(Object *a, Object *b) {
-  // Objects of different types cannot be compared
-  // TODO: Maybe return nil instead?
-  if (a->type != b->type) return false_obj;
-  switch (a->type) {
-    case ObjType::Number: {
-      return a->val.i_value > b->val.i_value;
-    } break;
-    case ObjType::String: {
-      return a->val.s_value > b->val.s_value;
-    } break;
-    case ObjType::Boolean: {
-      return a->val.i_value > b->val.i_value;
-    } break;
-    default:
-      return false_obj;
-  }
-}
-
-Object *objects_gt(Object *a, Object *b) {
-  return bool_obj_from(objects_gt_bare(a, b));
-}
-
-bool objects_lt_bare(Object *a, Object *b) {
-  // Objects of different types cannot be compared
-  // TODO: Maybe return nil instead?
-  if (a->type != b->type) return false_obj;
-  switch (a->type) {
-    case ObjType::Number: {
-      return a->val.i_value < b->val.i_value;
-    } break;
-    case ObjType::String: {
-      return a->val.s_value < b->val.s_value;
-    } break;
-    case ObjType::Boolean: {
-      return a->val.i_value < b->val.i_value;
-    } break;
-    default:
-      return false_obj;
-  }
-}
-
-Object *objects_lt(Object *a, Object *b) {
-  return bool_obj_from(objects_lt_bare(a, b));
-}
-
 Object *binary_builtin(Object *expr, char const *name,
                        BinaryObjOpHandler handler) {
   auto *l = expr->val.l_value;
   size_t given_args = l->size() - 1;
   if (l->size() != 3) {
-    printf("%s takes exactly 2 operands, %i was given\n", name, given_args);
+    printf("%s takes exactly 2 operands, %llu was given\n", name, given_args);
     return nil_obj;
   }
   auto *left_op = eval_expr(l->at(1));
@@ -768,8 +781,6 @@ Object *gt_builtin(Object *expr) {
 Object *lt_builtin(Object *expr) {
   return binary_builtin(expr, "<", objects_lt);
 }
-
-bool is_list(Object *obj) { return obj->type == ObjType::List; }
 
 Object *car_builtin(Object *expr) {
   auto *list_to_operate_on = eval_expr(list_index(expr, 1));
@@ -839,6 +850,65 @@ Object *cond_builtin(Object *expr) {
       return res;
     }
   }
+  return nil_obj;
+}
+
+inline void error_builtin_arg_mismatch_function(char const *fname,
+                                                size_t expected,
+                                                Object const *expr) {
+  // 1 for the function name to call
+  size_t got = list_length(expr) - 1;
+  printf("Error: Built-in %s expected %llu arguments, got %llu\n", fname, expected,
+         got);
+}
+
+inline bool check_builtin_n_params(char const *bname, Object const *expr,
+                                   size_t n) {
+  size_t got_params = list_length(expr) - 1;
+  if (got_params != n) {
+    error_builtin_arg_mismatch_function("timeit", 1, expr);
+    return false;
+  }
+  return true;
+}
+
+inline bool check_builtin_no_params(char const *bname, Object const *expr) {
+  return check_builtin_n_params(bname, expr, 0);
+}
+
+Object *memtotal_builtin(Object *expr) {
+  // TODO: Implement
+  size_t memtotal = 0;
+  auto *s = new std::string(std::to_string(memtotal));
+  return create_str_obj(s);
+}
+
+Object *timeit_builtin(Object *expr) {
+  size_t memtotal = 0;
+  if (!check_builtin_n_params("timeit", expr, 1)) return nil_obj;
+  auto *expr_to_time = list_index(expr, 1);
+  using std::chrono::duration;
+  using std::chrono::duration_cast;
+  using std::chrono::high_resolution_clock;
+  using std::chrono::milliseconds;
+  auto start_time = high_resolution_clock::now();
+  // discard the result
+  eval_expr(expr_to_time);
+  auto end_time = high_resolution_clock::now();
+  duration<double, std::milli> ms_double = end_time - start_time;
+  auto running_time = ms_double.count();
+  auto *rtime_s = new std::string(std::to_string(running_time));
+  return create_str_obj(rtime_s);
+}
+
+Object *sleep_builtin(Object *expr) {
+  size_t memtotal = 0;
+  if (!check_builtin_n_params("sleep", expr, 1)) return nil_obj;
+  auto *ms_num_obj = list_index(expr, 1);
+  auto ms = ms_num_obj->val.i_value;
+  // sleep the execution thread
+  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+  return nil_obj;
 }
 
 Object *call_function(Object *fobj, Object *args_list) {
@@ -1008,7 +1078,8 @@ Object *eval_expr(Object *expr) {
 }
 
 char *read_whole_file_into_memory(char const *fp) {
-  FILE *f = fopen(fp, "r");
+  FILE *f;
+  fopen_s(&f, fp, "r");
   if (!f) {
     return nullptr;
   }
@@ -1068,7 +1139,6 @@ bool load_file(char const *file_to_read) {
   }
   return true;
 }
-
 void init_interp() {
   // Initialize global symbol table
   symtable = new SymTable();
@@ -1097,6 +1167,9 @@ void init_interp() {
   create_builtin_function_and_save("cdr", (cdr_builtin));
   create_builtin_function_and_save("cadr", (cadr_builtin));
   create_builtin_function_and_save("cond", (cond_builtin));
+  create_builtin_function_and_save("memtotal", (memtotal_builtin));
+  create_builtin_function_and_save("timeit", (timeit_builtin));
+  create_builtin_function_and_save("sleep", (sleep_builtin));
   // Load the standard library
   char const *STDLIB_PATH = "./stdlib";
   load_file(join_paths(STDLIB_PATH, "basic.lisp").data());
@@ -1109,7 +1182,7 @@ void run_interp() {
   while (is_running) {
     std::cout << prompt;
     char c;
-    while (std::cin.get(c) && c != '.' && c != '\n') {
+    while (std::cin.get(c) && c != '\n') {
       input += c;
     }
     if (input == ".exit") {

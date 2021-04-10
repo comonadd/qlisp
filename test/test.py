@@ -66,10 +66,8 @@ def main():
                         failed += 1
                 processed += 1
             except OSError as e:
-                print("\n{}Couldn't read example output file at {}\n{}{}".format(COL_FAIL,
-                                                                               test_output_file,
-                                                                               e, COL_ENDC))
-                return -1
+                # Just skip the test suite if there is no output file found
+                continue
     print("Processed {} tests".format(processed))
     print("{}{} {} succeeded{}".format(COL_OKGREEN, succeeded, fmt_num_word("test", succeeded), COL_ENDC))
     if failed != 0:
