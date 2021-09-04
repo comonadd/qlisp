@@ -6,6 +6,7 @@ cmake_install.cmake
 .vs
 CMakeCache.txt
 CMakeFiles
-Debug
+Debug/
+Release/
 lisp_impl.dir
 Makefile

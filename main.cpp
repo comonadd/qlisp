@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <math.h>
 
 #include <chrono>
 #include <iostream>
@@ -8,17 +10,8 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
-
-#define WIN32 1
-
-#if WIN32
-// NOLINTNEXTLINE
-#include "windows.h"
-// NOLINTNEXTLINE
-#include "psapi.h"
-#endif
-
-#define DEBUG 1
+#include <fstream>
+#include "platform/platform.hpp"
 
 #if DEBUG
 #define assert_stmt(__EXPR, __MSG)             \
@@ -35,19 +28,8 @@
 // Utility
 ////////////////////////////////
 
-#if WIN32
-// returns total virtual memory usage for the current process (in bytes)
-size_t get_total_memory_usage() {
-  PROCESS_MEMORY_COUNTERS_EX pmc;
-  GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS *)&pmc,
-                       sizeof(pmc));
-  SIZE_T virtualMemUsedByMe = pmc.PrivateUsage;
-  return virtualMemUsedByMe;
-}
-#endif
-
 // TODO: Wrap in a struct
-char *text;
+const char *text;
 int text_pos = 0;
 int text_len;
 
@@ -1157,39 +1139,14 @@ Object *eval_expr(Object *expr) {
   }
 }
 
-char *read_whole_file_into_memory(char const *fp) {
-  FILE *f;
-  fopen_s(&f, fp, "r");
-  if (!f) {
-    return nullptr;
-  }
-  fseek(f, 0L, SEEK_END);
-  const size_t file_size = ftell(f);
-  fseek(f, 0L, SEEK_SET);
-  char *content = (char *)malloc((file_size + 1) * sizeof(*content));
-  const size_t READ_N = 128;
-  char *content_p = content;
-  int read_bytes = 0;
-  while (true) {
-    read_bytes = fread(content_p, 1, READ_N, f);
-    if (read_bytes == 0) {
-      if (ferror(f)) {
-        printf("Encountered an error while reading the file\n");
-        return nullptr;
-      }
-      *content_p = '\0';
-      break;
-    }
-    content_p += read_bytes;
-  }
-  return content;
+std::string read_whole_file_into_memory(char const *fp) {
+  std::ifstream in("FileReadExample.cpp");
+  std::string contents((std::istreambuf_iterator<char>(in)),
+      std::istreambuf_iterator<char>());
+  return contents;
 }
 
-#define WIN_32 1
-
-#ifdef WIN_32
-char PATH_SEP = '/';
-#endif
+const char PATH_SEP = '/';
 
 std::string join_paths(std::string const &a, std::string const &b) {
   std::string res;
@@ -1206,7 +1163,7 @@ std::string join_paths(std::string const &a, std::string const &b) {
 }
 
 bool load_file(char const *file_to_read) {
-  text = read_whole_file_into_memory(file_to_read);
+  text = read_whole_file_into_memory(file_to_read).c_str();
   if (text == nullptr) {
     printf("Couldn't load file at %s, skipping\n", file_to_read);
     return false;
