@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <filesystem>
 #include <string>
+#include "types.hpp"
 
 using std::filesystem::path;
 
@@ -21,6 +22,10 @@ struct {
   int text_pos = 0;
   int text_len;
   SymTable *symtable;
+  // current module info
+  const char* file_name = nullptr;
+  u32 line = 0;
+  u32 col = 0;
 } IS;
 
 bool load_file(path file_to_read);

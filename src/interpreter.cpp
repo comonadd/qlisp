@@ -26,16 +26,24 @@ inline bool can_be_a_part_of_symbol(char ch) {
          ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
 }
 
+void eof_error() {
+  printf("Error in %s at [%d:%d]: EOF", IS.file_name, IS.line, IS.col);
+}
+
 inline char next_char() {
   ++IS.text_pos;
   return IS.text[IS.text_pos];
 }
 
-inline void skip_char() { ++IS.text_pos; }
-
 inline char get_char() { return IS.text[IS.text_pos]; }
 
+inline void skip_char() {
+  ++IS.col;
+  ++IS.text_pos;
+}
+
 inline void consume_char(char ch) {
+  ++IS.col;
   if (get_char() == ch) {
     ++IS.text_pos;
     return;
@@ -130,7 +138,7 @@ Object *read_list(bool literal = false) {
   consume_char('(');
   while (get_char() != ')') {
     if (IS.text_pos >= IS.text_len) {
-      printf("EOF\n");
+      eof_error();
       exit(1);
       return nullptr;
     }
@@ -145,11 +153,16 @@ Object *read_expr() {
   char ch = get_char();
   if (IS.text_pos >= IS.text_len) return nil_obj;
   switch (ch) {
-    case ' ':
+    case ' ': {
+      skip_char();
+      return read_expr();
+    } break;
     case '\n':
     case '\r': {
       // TODO: Count the skipped lines
       skip_char();
+      ++IS.line;
+      IS.col = 0;
       return read_expr();
     } break;
     case ';': {
@@ -667,6 +680,9 @@ Object *eval_expr(Object *expr) {
 bool load_file(path file_to_read) {
   auto s = read_whole_file_into_memory(file_to_read.c_str());
   IS.text = s.c_str();
+  IS.file_name = file_to_read.c_str();
+  IS.line = 0;
+  IS.col = 0;
   if (IS.text == nullptr) {
     printf("Couldn't load file at %s, skipping\n", file_to_read.c_str());
     return false;
@@ -723,6 +739,9 @@ void run_interp() {
   std::string input;
   bool is_running = true;
   static std::string prompt = ">> ";
+  IS.file_name = "interp";
+  IS.line = 0;
+  IS.col = 0;
   while (is_running) {
     std::cout << prompt;
     char c;
