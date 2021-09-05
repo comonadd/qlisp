@@ -6,8 +6,14 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 ROOT_DIR = os.path.realpath(os.path.join(SCRIPT_DIR, ".."))
 EXAMPLES_DIR = os.path.join(ROOT_DIR, "examples")
 EXAMPLES_OUT_DIR = os.path.join(EXAMPLES_DIR, "out_test")
-# TODO: Support unix builds
-INTERP_PATH = os.path.join(ROOT_DIR, "build", "lisp_impl.exe")
+BDIR = os.path.join(ROOT_DIR, "Debug")
+if os.name == 'nt':
+    INTERP_PATH = os.path.join(BDIR, "lisp_impl.exe")
+elif os.name == 'posix':
+    INTERP_PATH = os.path.join(BDIR, "lisp_impl")
+else:
+    print("OS not supported", file=sys.stderr)
+    sys.exit(1)
 
 COL_PINK = '\033[95m'
 COL_OKBLUE = '\033[94m'

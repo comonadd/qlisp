@@ -1,9 +1,8 @@
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
 #include <chrono>
 #include <iostream>
 #include <string>
@@ -11,18 +10,13 @@
 #include <unordered_map>
 #include <vector>
 #include <fstream>
+#include <utility>
+#include <filesystem>
 #include "platform/platform.hpp"
+#include "util.hpp"
 
-#if DEBUG
-#define assert_stmt(__EXPR, __MSG)             \
-  do {                                         \
-    if (!(__EXPR)) {                           \
-      printf("Assertion failed: %s\n", __MSG); \
-    }                                          \
-  } while (0)
-#else
-#define assert_stmt
-#endif
+using std::filesystem::path;
+
 
 ////////////////////////////////
 // Utility
@@ -111,7 +105,6 @@ inline void set_symbol(std::string const &key, Object *value) {
   symtable->map[key] = value;
 }
 Object *get_symbol(std::string &key) {
-  Object *res = nil_obj;
   SymTable *ltable = symtable;
   while (true) {
     bool present = ltable->map.find(key) != ltable->map.end();
@@ -120,7 +113,7 @@ Object *get_symbol(std::string &key) {
     }
     // Global table
     if (ltable->prev == nullptr) {
-      return nullptr;
+      return nil_obj;
     }
     ltable = ltable->prev;
   }
@@ -272,7 +265,7 @@ std::string *obj_to_string_bare(Object *obj) {
     } break;
     case ObjType::List: {
       auto *res = new std::string("(");
-      for (int i = 0; i < list_length(obj) - 1; ++i) {
+      for (size_t i = 0; i < list_length(obj) - 1; ++i) {
         auto *member = list_index(obj, i);
         *res += *obj_to_string_bare(member);
         *res += ' ';
@@ -391,8 +384,8 @@ void print_obj(Object *obj, int indent = 0) {
       }
     } break;
     case ObjType::List: {
-      printf("%s[List] %llu: \n", indent_s, obj->val.l_value->size());
-      for (int i = 0; i < obj->val.l_value->size(); ++i) {
+      printf("%s[List] %lu: \n", indent_s, obj->val.l_value->size());
+      for (size_t i = 0; i < obj->val.l_value->size(); ++i) {
         auto *lobj = obj->val.l_value->at(i);
         print_obj(lobj, indent + 1);
         printf("\n");
@@ -402,7 +395,7 @@ void print_obj(Object *obj, int indent = 0) {
       printf("%s[Nil]", indent_s);
     } break;
     default: {
-      printf("Unknown object of type %i\n", obj->type);
+      printf("Unknown object of type %s\n", obj_type_to_str(obj->type));
     } break;
   }
 }
@@ -422,7 +415,7 @@ bool objects_equal_bare(Object *a, Object *b) {
     } break;
     case ObjType::List: {
       if (a->val.l_value->size() != b->val.l_value->size()) return false;
-      for (int i = 0; i < a->val.l_value->size(); ++i) {
+      for (size_t i = 0; i < a->val.l_value->size(); ++i) {
         auto *a_member = a->val.l_value->at(i);
         auto *b_member = b->val.l_value->at(i);
         if (!objects_equal_bare(a_member, b_member)) return false;
@@ -775,7 +768,6 @@ Object *lambda_builtin(Object *expr) {
     return nil_obj;
   }
   auto *funobj = new_object(ObjType::Function);
-  auto *fundef_list_v = fundef_list->val.l_value;
   funobj->flags |= OF_LAMBDA;
   funobj->val.f_value.funargs = fundef_list;
   funobj->val.f_value.funbody = expr;
@@ -787,7 +779,7 @@ Object *if_builtin(Object *expr) {
   if (l->size() != 4) {
     printf(
         "Error: if takes exactly 3 arguments: condition, then, and else "
-        "blocks. The function was given %llu arguments instead\n",
+        "blocks. The function was given %lu arguments instead\n",
         l->size());
     return nil_obj;
   }
@@ -806,7 +798,7 @@ Object *binary_builtin(Object *expr, char const *name,
   auto *l = expr->val.l_value;
   size_t given_args = l->size() - 1;
   if (l->size() != 3) {
-    printf("%s takes exactly 2 operands, %llu was given\n", name, given_args);
+    printf("%s takes exactly 2 operands, %lu was given\n", name, given_args);
     return nil_obj;
   }
   auto *left_op = eval_expr(l->at(1));
@@ -879,7 +871,7 @@ Object *cdr_builtin(Object *expr) {
     return nil_obj;
   }
   if (list_length(list_to_operate_on) < 1) return list_to_operate_on;
-  for (int i = 1; i < list_length(list_to_operate_on); ++i) {
+  for (size_t i = 1; i < list_length(list_to_operate_on); ++i) {
     auto *evaluated_item = list_index(list_to_operate_on, i);
     list_append_inplace(new_list, evaluated_item);
   }
@@ -894,7 +886,7 @@ Object *cond_builtin(Object *expr) {
     printf("cond requires at least one condition pair argument");
     return nil_obj;
   }
-  for (int cond_idx = 1; cond_idx < list_length(expr); ++cond_idx) {
+  for (size_t cond_idx = 1; cond_idx < list_length(expr); ++cond_idx) {
     auto *cond_pair = list_index(expr, cond_idx);
     auto *cond_expr = list_index(cond_pair, 0);
     auto *cond_evaluated = eval_expr(cond_expr);
@@ -914,7 +906,7 @@ inline void error_builtin_arg_mismatch_function(char const *fname,
                                                 Object const *expr) {
   // 1 for the function name to call
   size_t got = list_length(expr) - 1;
-  printf("Error: Built-in %s expected %llu arguments, got %llu\n", fname,
+  printf("Error: Built-in %s expected %lu arguments, got %lu\n", fname,
          expected, got);
 }
 
@@ -993,7 +985,7 @@ Object *call_function(Object *fobj, Object *args_list) {
   // Because calling function still means that the first element
   // of the list is either a (lambda ()) or a function name (callthis a b c)
   int provided_arg_offset = is_lambda ? 1 : 0;
-  for (int arg_idx = starting_arg_idx; arg_idx < arglistl->size(); ++arg_idx) {
+  for (size_t arg_idx = starting_arg_idx; arg_idx < arglistl->size(); ++arg_idx) {
     auto *arg = arglistl->at(arg_idx);
     auto *local_arg_name = arg->val.s_value;
     if (arg == dot_obj) {
@@ -1012,7 +1004,7 @@ Object *call_function(Object *fobj, Object *args_list) {
       // read all arguments into a list and bind it to the local scope
       auto *varg = arglistl->at(arg_idx + 1);
       auto *varg_lobj = create_data_list_obj();
-      for (int provided_arg_idx = arg_idx;
+      for (auto provided_arg_idx = arg_idx;
            provided_arg_idx < provided_arglistl->size(); ++provided_arg_idx) {
         auto *provided_arg = provided_arglistl->at(provided_arg_idx);
         // user provided a dot argument, which means that a list containing
@@ -1037,7 +1029,7 @@ Object *call_function(Object *fobj, Object *args_list) {
                 "followed by a list argument\n");
             return nil_obj;
           }
-          for (int exp_idx = 0; exp_idx < list_length(provided_variadic_list);
+          for (size_t exp_idx = 0; exp_idx < list_length(provided_variadic_list);
                ++exp_idx) {
             auto *exp_item = list_index(provided_variadic_list, exp_idx);
             list_append_inplace(varg_lobj, exp_item);
@@ -1104,7 +1096,7 @@ Object *eval_expr(Object *expr) {
     case ObjType::List: {
       if (expr->flags & OF_LIST_LITERAL) {
         auto *items = list_members(expr);
-        for (int i = 0; i < items->size(); ++i) {
+        for (size_t i = 0; i < items->size(); ++i) {
           // do we need to evaluate here?
           (*items)[i] = eval_expr(items->at(i));
         }
@@ -1139,40 +1131,18 @@ Object *eval_expr(Object *expr) {
   }
 }
 
-std::string read_whole_file_into_memory(char const *fp) {
-  std::ifstream in("FileReadExample.cpp");
-  std::string contents((std::istreambuf_iterator<char>(in)),
-      std::istreambuf_iterator<char>());
-  return contents;
-}
-
-const char PATH_SEP = '/';
-
-std::string join_paths(std::string const &a, std::string const &b) {
-  std::string res;
-  int a_end_pos = a.size() - 1;
-  while (a[a_end_pos] == PATH_SEP) {
-    --a_end_pos;
-  }
-  for (int i = 0; i <= a_end_pos; ++i) {
-    res += a[i];
-  }
-  res += PATH_SEP;
-  res += b;
-  return res;
-}
-
-bool load_file(char const *file_to_read) {
-  text = read_whole_file_into_memory(file_to_read).c_str();
+bool load_file(path file_to_read) {
+  auto s = read_whole_file_into_memory(file_to_read.c_str());
+  text = s.c_str();
   if (text == nullptr) {
-    printf("Couldn't load file at %s, skipping\n", file_to_read);
+    printf("Couldn't load file at %s, skipping\n", file_to_read.c_str());
     return false;
   }
   text_len = strlen(text);
   text_pos = 0;
   while (text_pos < text_len) {
     auto *e = read_expr();
-    auto *eval = eval_expr(e);
+    eval_expr(e);
   }
   return true;
 }
@@ -1212,8 +1182,8 @@ void init_interp() {
   create_builtin_function_and_save("timeit", (timeit_builtin));
   create_builtin_function_and_save("sleep", (sleep_builtin));
   // Load the standard library
-  char const *STDLIB_PATH = "./stdlib";
-  load_file(join_paths(STDLIB_PATH, "basic.lisp").data());
+  path STDLIB_PATH = "./stdlib";
+  load_file(STDLIB_PATH / path("basic.lisp"));
 }
 
 void run_interp() {
