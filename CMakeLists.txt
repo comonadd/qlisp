@@ -16,7 +16,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 elseif (CMAKE_BUILD_TYPE STREQUAL "Release")
 endif ()
 
-set(sources ${src}/main.cpp ${src}/util.cpp)
+set(sources ${src}/main.cpp ${src}/util.cpp ${src}/objects.cpp ${src}/interpreter.cpp)
 add_compile_options(-Wall)
 add_executable(${TARGET} ${platform_sources} ${sources})
 set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD 20)
