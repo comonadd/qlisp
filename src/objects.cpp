@@ -1,8 +1,12 @@
 #include "objects.hpp"
-#include <stdlib.h>
+
 #include <stdint.h>
+#include <stdlib.h>
+
 #include <string>
 #include <vector>
+
+#include "errors.hpp"
 #include "util.hpp"
 
 static char const *otts[] = {"List", "Symbol",   "String", "Number",
@@ -16,11 +20,15 @@ Object *else_obj;
 
 char const *obj_type_to_str(ObjType ot) { return otts[(int)ot]; }
 
+char const *obj_type_s(Object *a) { return obj_type_to_str(a->type); }
+
 Object *sub_two_objects(Object *a, Object *b) {
   switch (a->type) {
     case ObjType::Number: {
       if (b->type != ObjType::Number) {
-        printf("Can only substract numbers from other numbers\n");
+        error_msg(format(
+            "Can only substract numbers from other numbers, got {} and {}",
+            obj_type_s(a), obj_type_s(b)));
         return nil_obj;
       }
       auto v = a->val.i_value - b->val.i_value;
@@ -38,7 +46,9 @@ Object *add_two_objects(Object *a, Object *b) {
   switch (a->type) {
     case ObjType::Number: {
       if (b->type != ObjType::Number) {
-        printf("Can only add other numbers to numbers\n");
+        error_msg(
+            format("Can only add numbers from other numbers, got {} and {}",
+                   obj_type_s(a), obj_type_s(b)));
         return nil_obj;
       }
       auto v = a->val.i_value + b->val.i_value;

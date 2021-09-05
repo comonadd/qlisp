@@ -16,8 +16,7 @@ struct SymTable {
   SymTable *prev;
 };
 
-// Interpreter state
-struct {
+struct InterpreterState {
   const char *text;
   int text_pos = 0;
   int text_len;
@@ -26,7 +25,9 @@ struct {
   const char* file_name = nullptr;
   u32 line = 0;
   u32 col = 0;
-} IS;
+};
+
+extern InterpreterState IS;
 
 bool load_file(path file_to_read);
 void init_interp();

@@ -20,3 +20,6 @@ set(sources ${src}/main.cpp ${src}/util.cpp ${src}/objects.cpp ${src}/interprete
 add_compile_options(-Wall)
 add_executable(${TARGET} ${platform_sources} ${sources})
 set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD 20)
+
+find_package(fmt)
+target_link_libraries(${TARGET} fmt::fmt)

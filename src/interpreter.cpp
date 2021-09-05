@@ -1,5 +1,7 @@
 #include "interpreter.hpp"
 
+#include <fmt/core.h>
+
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -10,24 +12,25 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "errors.hpp"
 #include "objects.hpp"
 #include "platform/platform.hpp"
 #include "util.hpp"
 
+using fmt::format;
 using std::filesystem::path;
+
+InterpreterState IS;
 
 inline bool can_be_a_part_of_symbol(char ch) {
   return isalpha(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' ||
          ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
-}
-
-void eof_error() {
-  printf("Error in %s at [%d:%d]: EOF", IS.file_name, IS.line, IS.col);
 }
 
 inline char next_char() {
@@ -48,7 +51,7 @@ inline void consume_char(char ch) {
     ++IS.text_pos;
     return;
   }
-  printf("Expected %c but found %c\n", ch, *IS.text);
+  error_msg(format("Expected {} but found {}\n", ch, *IS.text));
   exit(1);
 }
 
@@ -322,10 +325,10 @@ Object *lambda_builtin(Object *expr) {
 Object *if_builtin(Object *expr) {
   auto *l = expr->val.l_value;
   if (l->size() != 4) {
-    printf(
-        "Error: if takes exactly 3 arguments: condition, then, and else "
-        "blocks. The function was given %lu arguments instead\n",
-        l->size());
+    error_msg(
+        format("if takes exactly 3 arguments: condition, then, and else "
+               "blocks. The function was given {} arguments instead\n",
+               l->size()));
     return nil_obj;
   }
   auto *condition = l->at(1);
@@ -343,7 +346,8 @@ Object *binary_builtin(Object *expr, char const *name,
   auto *l = expr->val.l_value;
   size_t given_args = l->size() - 1;
   if (l->size() != 3) {
-    printf("%s takes exactly 2 operands, %lu was given\n", name, given_args);
+    error_msg(format("{} takes exactly 2 operands, {} was given\n", name,
+                     given_args));
     return nil_obj;
   }
   auto *left_op = eval_expr(l->at(1));
@@ -446,15 +450,6 @@ Object *cond_builtin(Object *expr) {
   return nil_obj;
 }
 
-inline void error_builtin_arg_mismatch_function(char const *fname,
-                                                size_t expected,
-                                                Object const *expr) {
-  // 1 for the function name to call
-  size_t got = list_length(expr) - 1;
-  printf("Error: Built-in %s expected %lu arguments, got %lu\n", fname,
-         expected, got);
-}
-
 inline bool check_builtin_n_params(char const *bname, Object const *expr,
                                    size_t n) {
   size_t got_params = list_length(expr) - 1;
@@ -505,7 +500,7 @@ const size_t MAX_STACK_SIZE = 256;
 
 Object *call_function(Object *fobj, Object *args_list) {
   if (call_stack_size > MAX_STACK_SIZE) {
-    printf("Error: Max call stack size reached\n");
+    error_msg("Max call stack size reached");
     return nil_obj;
   }
 
@@ -559,20 +554,20 @@ Object *call_function(Object *fobj, Object *args_list) {
           // the dot must be on the pre-last position
           if (provided_arg_idx != provided_arglistl->size() - 2) {
             auto *fn = fun_name(fobj);
-            printf(
-                "Error while calling %s: dot notation on the caller side "
+            error_msg(format(
+                "Error while calling {}: dot notation on the caller side "
                 "must be followed by a list argument containing the "
                 "variadic expansion list\n",
-                fn);
+                fn));
             return nil_obj;
           }
           // expand the rest
           auto *provided_variadic_list =
               eval_expr(provided_arglistl->at(provided_arg_idx + 1));
           if (provided_variadic_list->type != ObjType::List) {
-            printf(
-                "Error: dot operator on caller side should always be "
-                "followed by a list argument\n");
+            error_msg(
+                "dot operator on caller side should always be "
+                "followed by a list argument");
             return nil_obj;
           }
           for (size_t exp_idx = 0;
@@ -656,7 +651,7 @@ Object *eval_expr(Object *expr) {
       auto *callable = eval_expr(op);
       if (!is_callable(callable)) {
         auto *s = obj_to_string_bare(callable);
-        printf("Error: %s is not callable\n", s->data());
+        error_msg(format("\"{}\" is not callable", s->data()));
         delete s;
         return nil_obj;
       }
