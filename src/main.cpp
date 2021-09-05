@@ -22,32 +22,34 @@ using std::filesystem::path;
 // Utility
 ////////////////////////////////
 
-// TODO: Wrap in a struct
-const char *text;
-int text_pos = 0;
-int text_len;
+// Interpreter state
+struct {
+  const char *text;
+  int text_pos = 0;
+  int text_len;
+} IS;
 
 inline char next_char() {
-  ++text_pos;
-  return text[text_pos];
+  ++IS.text_pos;
+  return IS.text[IS.text_pos];
 }
 
-inline void skip_char() { ++text_pos; }
+inline void skip_char() { ++IS.text_pos; }
 
-inline char get_char() { return text[text_pos]; }
+inline char get_char() { return IS.text[IS.text_pos]; }
 
 inline void consume_char(char ch) {
   if (get_char() == ch) {
-    ++text_pos;
+    ++IS.text_pos;
     return;
   }
-  printf("Expected %c but found %c\n", ch, *text);
+  printf("Expected %c but found %c\n", ch, *IS.text);
   exit(1);
 }
 
 inline bool can_be_a_part_of_symbol(char ch) {
   return isalpha(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' ||
-         ch == '*' || ch == '/' || ch == '>' || ch == '<';
+         ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
 }
 
 enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean };
@@ -556,7 +558,7 @@ Object *read_str() {
   auto *svalue = new std::string("");
   consume_char('"');
   char ch = get_char();
-  while (text_pos < text_len && ch != '"') {
+  while (IS.text_pos < IS.text_len && ch != '"') {
     svalue->push_back(ch);
     ch = next_char();
   }
@@ -567,7 +569,7 @@ Object *read_str() {
 Object *read_sym() {
   auto *svalue = new std::string("");
   char ch = get_char();
-  while (text_pos < text_len && can_be_a_part_of_symbol(ch)) {
+  while (IS.text_pos < IS.text_len && can_be_a_part_of_symbol(ch)) {
     svalue->push_back(ch);
     ch = next_char();
   }
@@ -578,7 +580,7 @@ Object *read_num() {
   char ch = get_char();
   static char buf[1024];
   int buf_len = 0;
-  while (text_pos < text_len && isdigit(ch)) {
+  while (IS.text_pos < IS.text_len && isdigit(ch)) {
     buf[buf_len] = ch;
     ch = next_char();
     ++buf_len;
@@ -597,7 +599,7 @@ Object *read_list(bool literal = false) {
   }
   consume_char('(');
   while (get_char() != ')') {
-    if (text_pos >= text_len) {
+    if (IS.text_pos >= IS.text_len) {
       printf("EOF\n");
       exit(1);
       return nullptr;
@@ -611,7 +613,7 @@ Object *read_list(bool literal = false) {
 
 Object *read_expr() {
   char ch = get_char();
-  if (text_pos >= text_len) return nil_obj;
+  if (IS.text_pos >= IS.text_len) return nil_obj;
   switch (ch) {
     case ' ':
     case '\n':
@@ -1133,14 +1135,14 @@ Object *eval_expr(Object *expr) {
 
 bool load_file(path file_to_read) {
   auto s = read_whole_file_into_memory(file_to_read.c_str());
-  text = s.c_str();
-  if (text == nullptr) {
+  IS.text = s.c_str();
+  if (IS.text == nullptr) {
     printf("Couldn't load file at %s, skipping\n", file_to_read.c_str());
     return false;
   }
-  text_len = strlen(text);
-  text_pos = 0;
-  while (text_pos < text_len) {
+  IS.text_len = strlen(IS.text);
+  IS.text_pos = 0;
+  while (IS.text_pos < IS.text_len) {
     auto *e = read_expr();
     eval_expr(e);
   }
@@ -1200,9 +1202,9 @@ void run_interp() {
       is_running = false;
       continue;
     }
-    text = input.data();
-    text_pos = 0;
-    text_len = input.size();
+    IS.text = input.data();
+    IS.text_pos = 0;
+    IS.text_len = input.size();
     auto *e = read_expr();
     auto *res = eval_expr(e);
     auto *str_repr = obj_to_string_bare(res);
