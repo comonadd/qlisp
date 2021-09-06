@@ -227,9 +227,14 @@ Object *read_expr() {
     case '"': {
       return read_str();
     } break;
-    case '.':
+    case '.': {
       skip_char();
       return dot_obj;
+    } break;
+    case '\0': {
+      skip_char();
+      return nil_obj;
+    } break;
     default: {
       if (isdigit(ch)) {
         return read_num();
@@ -237,7 +242,7 @@ Object *read_expr() {
       if (can_start_a_symbol(ch)) {
         return read_sym();
       }
-      printf("Invalid character: %c (%i)\n", ch, ch);
+      error_msg(format("Invalid character: {} ({:d})", ch, ch));
       exit(1);
       return nullptr;
     }
@@ -365,7 +370,8 @@ Object *lambda_builtin(Object *expr) {
   // parse function definition list
   auto *fundef_list = l->at(1);
   if (fundef_list->type != ObjType::List) {
-    printf("First paremeter of lambda() should be a list");
+    error_msg(format("First paremeter of lambda() should be a list, got \"{}\"",
+                     obj_type_to_str(fundef_list->type)));
     return nil_obj;
   }
   auto *funobj = new_object(ObjType::Function);
@@ -373,6 +379,36 @@ Object *lambda_builtin(Object *expr) {
   funobj->val.f_value.funargs = fundef_list;
   funobj->val.f_value.funbody = expr;
   return funobj;
+}
+
+Object *eval_builtin(Object *expr) {
+  auto *l = expr->val.l_value;
+  u32 elems_len = l->size();
+  if (elems_len < 2) {
+    error_msg(format(
+        "eval needs at least one expression to evaluate as an argument, got {}",
+        elems_len));
+    return nil_obj;
+  }
+  Object *res = nil_obj;
+  auto saved_is = IS;
+  for (u32 i = 1; i < elems_len; ++i) {
+    auto *expr_obj = eval_expr(l->at(i));
+    if (expr_obj->type != ObjType::String) {
+      error_msg(format("Eval can only evaluate strings, got \"{}\"",
+                       obj_type_to_str(expr_obj->type)));
+      res = nil_obj;
+      break;
+    }
+    IS.line = 1;
+    IS.col = 0;
+    IS.text = expr_obj->val.s_value->c_str();
+    IS.text_pos = 0;
+    Object *e = read_expr();
+    res = eval_expr(e);
+  }
+  IS = saved_is;
+  return res;
 }
 
 Object *if_builtin(Object *expr) {
@@ -421,12 +457,13 @@ Object *lt_builtin(Object *expr) {
 }
 
 Object *not_builtin(Object *expr) {
-  auto* l = expr->val.l_value;
+  auto *l = expr->val.l_value;
   if (l->size() != 2) {
-    error_msg(format("not takes exactly 1 argument, {} was given\n", l->size()));
+    error_msg(
+        format("not takes exactly 1 argument, {} was given\n", l->size()));
     return nil_obj;
   }
-  auto* operand = eval_expr(l->at(1));
+  auto *operand = eval_expr(l->at(1));
   if (is_truthy(operand)) return false_obj;
   return true_obj;
 }
@@ -834,6 +871,7 @@ void init_interp() {
   create_builtin_function_and_save("begin", (begin_builtin));
   create_builtin_function_and_save("defun", (defun_builtin));
   create_builtin_function_and_save("lambda", (lambda_builtin));
+  create_builtin_function_and_save("eval", (eval_builtin));
   create_builtin_function_and_save("if", (if_builtin));
   create_builtin_function_and_save("car", (car_builtin));
   create_builtin_function_and_save("cdr", (cdr_builtin));

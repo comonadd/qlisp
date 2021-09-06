@@ -1,6 +1,5 @@
 Garbage collection
 Memory leaks
-string "eval" operator
 Modules
 Separate parsing from evaluation
 Parallel parsing of different modules

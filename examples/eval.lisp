@@ -1,0 +1,11 @@
+(print (eval "3"))
+(print (eval "(* 5 10)"))
+(print (eval "\"not this\"" "\"also not this\"" "\"this\""))
+(print (eval ""))
+(defun (natural-numbers n)
+    (defun (iter i)
+        (if (= i n)
+            i
+            (cons i (iter (+ i 1)))))
+    (iter 0))
+(print "This works " (map (lambda (x) (** 2 x)) (natural-numbers 14)))
