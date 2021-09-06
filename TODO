@@ -1,12 +1,9 @@
 Garbage collection
-Proper error messages
 Memory leaks
-"not" operator
 string "eval" operator
 Modules
 Separate parsing from evaluation
 Parallel parsing of different modules
 math functions
 graphics functions
-error reports
 interrupt print built-in if there's an error during evaluation

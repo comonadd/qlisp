@@ -420,6 +420,17 @@ Object *lt_builtin(Object *expr) {
   return binary_builtin(expr, "<", objects_lt);
 }
 
+Object *not_builtin(Object *expr) {
+  auto* l = expr->val.l_value;
+  if (l->size() != 2) {
+    error_msg(format("not takes exactly 1 argument, {} was given\n", l->size()));
+    return nil_obj;
+  }
+  auto* operand = eval_expr(l->at(1));
+  if (is_truthy(operand)) return false_obj;
+  return true_obj;
+}
+
 Object *div_objects_builtin(Object *expr) {
   return binary_builtin(expr, "/", objects_div);
 }
@@ -817,6 +828,7 @@ void init_interp() {
   create_builtin_function_and_save("=", (equal_builtin));
   create_builtin_function_and_save(">", (gt_builtin));
   create_builtin_function_and_save("<", (lt_builtin));
+  create_builtin_function_and_save("not", (not_builtin));
   create_builtin_function_and_save("setq", (setq_builtin));
   create_builtin_function_and_save("print", (print_builtin));
   create_builtin_function_and_save("begin", (begin_builtin));
