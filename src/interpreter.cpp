@@ -29,11 +29,13 @@ using std::filesystem::path;
 InterpreterState IS;
 
 inline bool can_start_a_symbol(char ch) {
-  return isalpha(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' || ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
+  return isalpha(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' ||
+         ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
 }
 
 inline bool can_be_a_part_of_symbol(char ch) {
-  return isalnum(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' || ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
+  return isalnum(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' ||
+         ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
 }
 
 inline char next_char() {
@@ -55,7 +57,6 @@ inline void consume_char(char ch) {
     return;
   }
   error_msg(format("Expected {} but found {}\n", ch, *IS.text));
-  exit(1);
 }
 
 inline void set_symbol(std::string const &key, Object *value) {
@@ -102,9 +103,45 @@ Object *read_str() {
   auto *svalue = new std::string("");
   consume_char('"');
   char ch = get_char();
-  while (IS.text_pos < IS.text_len && ch != '"') {
-    svalue->push_back(ch);
-    ch = next_char();
+  while (IS.text_pos < IS.text_len) {
+    if (ch == '\\') {
+      ch = next_char();
+      if (IS.text_pos >= IS.text_len) {
+        eof_error();
+        delete svalue;
+        return nil_obj;
+      }
+      switch (ch) {
+        case 'n': {
+          svalue->push_back('\n');
+        } break;
+        case 'r': {
+          svalue->push_back('\r');
+        } break;
+        case '0': {
+          svalue->push_back('\0');
+        } break;
+        case '"': {
+          svalue->push_back('"');
+        } break;
+        case 't': {
+          svalue->push_back('\t');
+        } break;
+        case '\\': {
+          svalue->push_back('\\');
+        } break;
+        default: {
+          error_msg(format("Invalid escape sequence: \"\{}\"", ch));
+        } break;
+      }
+      ch = next_char();
+      continue;
+    } else if (ch == '"') {
+      break;
+    } else {
+      svalue->push_back(ch);
+      ch = next_char();
+    }
   }
   consume_char('"');
   return create_str_obj(svalue);
@@ -287,7 +324,7 @@ Object *begin_builtin(Object *expr) {
   auto *l = expr->val.l_value;
   int elems_len = l->size();
   int arg_idx = 1;
-  Object* last_evaluated = nil_obj;
+  Object *last_evaluated = nil_obj;
   while (arg_idx < elems_len) {
     auto *arg = eval_expr(l->at(arg_idx));
     last_evaluated = arg;
@@ -475,7 +512,7 @@ Object *cons_builtin(Object *expr) {
     error_msg("cons requires at least one condition pair argument");
     return nil_obj;
   }
-  auto* res = create_data_list_obj();
+  auto *res = create_data_list_obj();
   for (size_t idx = 1; idx < list_length(expr); ++idx) {
     auto *lexpr = list_index(expr, idx);
     auto *l = eval_expr(lexpr);
@@ -529,31 +566,31 @@ Object *sleep_builtin(Object *expr) {
   return nil_obj;
 }
 
-Object* make_hash_table_builtin(Object* expr) {
+Object *make_hash_table_builtin(Object *expr) {
   // TODO: Process arguments
   return create_hash_table_obj();
 }
 
-Object* get_hash_table_builtin(Object* expr) {
+Object *get_hash_table_builtin(Object *expr) {
   if (!check_builtin_n_params("get-hash", expr, 2)) return nil_obj;
-  auto* ht = eval_expr(list_index(expr, 1));
-  auto* key = eval_expr(list_index(expr, 2));
-  auto* val = hash_table_get(ht, key);
+  auto *ht = eval_expr(list_index(expr, 1));
+  auto *key = eval_expr(list_index(expr, 2));
+  auto *val = hash_table_get(ht, key);
   return val;
 }
 
-Object* set_hash_table_builtin(Object* expr) {
+Object *set_hash_table_builtin(Object *expr) {
   if (!check_builtin_n_params("set-hash", expr, 3)) return nil_obj;
-  auto* ht = eval_expr(list_index(expr, 1));
-  auto* key = eval_expr(list_index(expr, 2));
-  auto* val = eval_expr(list_index(expr, 3));
+  auto *ht = eval_expr(list_index(expr, 1));
+  auto *key = eval_expr(list_index(expr, 2));
+  auto *val = eval_expr(list_index(expr, 3));
   hash_table_set(ht, key, val);
   return nil_obj;
 }
 
-Object* null_builtin(Object* expr) {
-  auto* e = list_index(expr, 1);
-  auto* ee = eval_expr(e);
+Object *null_builtin(Object *expr) {
+  auto *e = list_index(expr, 1);
+  auto *ee = eval_expr(e);
   return is_truthy(ee) ? false_obj : true_obj;
 }
 
@@ -714,7 +751,8 @@ Object *eval_expr(Object *expr) {
       if (!is_callable(callable)) {
         auto *s = obj_to_string_bare(callable);
         auto *os = obj_to_string_bare(op);
-        error_msg(format("\"{}\" (eval: {}) is not callable", s->data(), os->data()));
+        error_msg(
+            format("\"{}\" (eval: {}) is not callable", s->data(), os->data()));
         delete s;
         delete os;
         return nil_obj;
@@ -793,7 +831,8 @@ void init_interp() {
   create_builtin_function_and_save("memtotal", (memtotal_builtin));
   create_builtin_function_and_save("timeit", (timeit_builtin));
   create_builtin_function_and_save("sleep", (sleep_builtin));
-  create_builtin_function_and_save("make-hash-table", (make_hash_table_builtin));
+  create_builtin_function_and_save("make-hash-table",
+                                   (make_hash_table_builtin));
   create_builtin_function_and_save("get-hash", (get_hash_table_builtin));
   create_builtin_function_and_save("set-hash", (set_hash_table_builtin));
   // Load the standard library
