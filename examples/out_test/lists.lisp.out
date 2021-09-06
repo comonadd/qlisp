@@ -1,3 +1,12 @@
 First item (car) of (3 2 1) is 3
 Second item (cadr) of (3 2 1) is 2
 cdr of (3 2 1) is (2 1)
+Append: (3 2 1 5 6 7 8)
+Appended length: 7
+Reversed: (8 7 6 5 1 2 3)
+Mapped: (1 4 9 16 25)
+Scaled x10: (10 40 90 160 250)
+x: 1
+x: 2
+x: 3
+Accumulated: 32

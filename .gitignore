@@ -14,3 +14,4 @@ Makefile
 cmake-build-debug/
 launch.json
 *.out
+examples/testing.lisp

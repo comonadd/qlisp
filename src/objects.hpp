@@ -11,6 +11,9 @@
 
 #include "util.hpp"
 #include "types.hpp"
+#include <fmt/core.h>
+
+using fmt::format;
 
 enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean };
 
@@ -116,6 +119,15 @@ inline void list_append_inplace(Object *list, Object *item) {
   // argument list so we have to increment ref count for each object. Somehow
   // abstract that into a separate function call? like "ref" for example?
   list->val.l_value->push_back(item);
+}
+inline void list_append_list_inplace(Object *list, Object *to_append) {
+  if (to_append->type != ObjType::List) {
+    list_append_inplace(list, to_append);
+    return;
+  }
+  for (auto* item : *list_members(to_append)) {
+    list_append_inplace(list, item);
+  }
 }
 
 inline char const *fun_name(Object *fun) {

@@ -28,9 +28,12 @@ using std::filesystem::path;
 
 InterpreterState IS;
 
+inline bool can_start_a_symbol(char ch) {
+  return isalpha(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' || ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
+}
+
 inline bool can_be_a_part_of_symbol(char ch) {
-  return isalpha(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' ||
-         ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
+  return isalnum(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' || ch == '*' || ch == '/' || ch == '>' || ch == '<' || ch == '?';
 }
 
 inline char next_char() {
@@ -194,7 +197,7 @@ Object *read_expr() {
       if (isdigit(ch)) {
         return read_num();
       }
-      if (can_be_a_part_of_symbol(ch)) {
+      if (can_start_a_symbol(ch)) {
         return read_sym();
       }
       printf("Invalid character: %c (%i)\n", ch, ch);
@@ -278,6 +281,19 @@ Object *print_builtin(Object *expr) {
   }
   printf("\n");
   return nil_obj;
+}
+
+Object *begin_builtin(Object *expr) {
+  auto *l = expr->val.l_value;
+  int elems_len = l->size();
+  int arg_idx = 1;
+  Object* last_evaluated = nil_obj;
+  while (arg_idx < elems_len) {
+    auto *arg = eval_expr(l->at(arg_idx));
+    last_evaluated = arg;
+    ++arg_idx;
+  }
+  return last_evaluated;
 }
 
 Object *defun_builtin(Object *expr) {
@@ -387,7 +403,7 @@ Object *car_builtin(Object *expr) {
   auto *list_to_operate_on = eval_expr(list_index(expr, 1));
   if (!is_list(list_to_operate_on)) {
     auto *s = obj_to_string_bare(list_to_operate_on);
-    printf("car only operates on lists, got %s\n", s->data());
+    error_msg(format("car only operates on lists, got {}\n", s->data()));
     delete s;
     return nil_obj;
   }
@@ -436,7 +452,7 @@ Object *cond_builtin(Object *expr) {
   // sequentually check every provided condition
   // and if one of them is true, return the provided value
   if (list_length(expr) < 2) {
-    printf("cond requires at least one condition pair argument");
+    error_msg("cond requires at least one condition pair argument");
     return nil_obj;
   }
   for (size_t cond_idx = 1; cond_idx < list_length(expr); ++cond_idx) {
@@ -452,6 +468,20 @@ Object *cond_builtin(Object *expr) {
     }
   }
   return nil_obj;
+}
+
+Object *cons_builtin(Object *expr) {
+  if (list_length(expr) < 2) {
+    error_msg("cons requires at least one condition pair argument");
+    return nil_obj;
+  }
+  auto* res = create_data_list_obj();
+  for (size_t idx = 1; idx < list_length(expr); ++idx) {
+    auto *lexpr = list_index(expr, idx);
+    auto *l = eval_expr(lexpr);
+    list_append_list_inplace(res, l);
+  }
+  return res;
 }
 
 inline bool check_builtin_n_params(char const *bname, Object const *expr,
@@ -497,6 +527,12 @@ Object *sleep_builtin(Object *expr) {
   // sleep the execution thread
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
   return nil_obj;
+}
+
+Object* null_builtin(Object* expr) {
+  auto* e = list_index(expr, 1);
+  auto* ee = eval_expr(e);
+  return is_truthy(ee) ? false_obj : true_obj;
 }
 
 static size_t call_stack_size = 0;
@@ -711,6 +747,7 @@ void init_interp() {
   set_symbol("true", true_obj);
   set_symbol("false", false_obj);
   set_symbol("else", else_obj);
+  create_builtin_function_and_save("null?", (null_builtin));
   create_builtin_function_and_save("+", (add_objects));
   create_builtin_function_and_save("-", (sub_objects));
   create_builtin_function_and_save("/", (div_objects_builtin));
@@ -722,6 +759,7 @@ void init_interp() {
   create_builtin_function_and_save("<", (lt_builtin));
   create_builtin_function_and_save("setq", (setq_builtin));
   create_builtin_function_and_save("print", (print_builtin));
+  create_builtin_function_and_save("begin", (begin_builtin));
   create_builtin_function_and_save("defun", (defun_builtin));
   create_builtin_function_and_save("lambda", (lambda_builtin));
   create_builtin_function_and_save("if", (if_builtin));
@@ -729,6 +767,7 @@ void init_interp() {
   create_builtin_function_and_save("cdr", (cdr_builtin));
   create_builtin_function_and_save("cadr", (cadr_builtin));
   create_builtin_function_and_save("cond", (cond_builtin));
+  create_builtin_function_and_save("cons", (cons_builtin));
   create_builtin_function_and_save("memtotal", (memtotal_builtin));
   create_builtin_function_and_save("timeit", (timeit_builtin));
   create_builtin_function_and_save("sleep", (sleep_builtin));
