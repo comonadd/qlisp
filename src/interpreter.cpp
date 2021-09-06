@@ -555,6 +555,34 @@ Object *cond_builtin(Object *expr) {
   return nil_obj;
 }
 
+Object *let_builtin(Object *expr) {
+  if (list_length(expr) != 3) {
+    error_msg("let requires exactly two arguments");
+    return nil_obj;
+  }
+  enter_scope();
+  auto* bindings = list_index(expr, 1);
+  for (size_t idx = 0; idx < list_length(bindings); ++idx) {
+    auto *let_pair = list_index(bindings, idx);
+    if (let_pair->type != ObjType::List) {
+      error_msg(format("let binding list should consist of lists, got \"{}\"", obj_type_to_str(let_pair->type)));
+      break;
+    }
+    auto *let_name = list_index(let_pair, 0);
+    auto *let_value = eval_expr(list_index(let_pair, 1));
+    if (let_name->type != ObjType::Symbol) {
+      error_msg(format("let binding name must be a symbol, got \"{}\"",
+                       obj_type_to_str(let_name->type)));
+      break;
+    }
+    set_symbol(*let_name->val.s_value, let_value);
+  }
+  auto* let_body = list_index(expr, 2);
+  auto* res = eval_expr(let_body);
+  exit_scope();
+  return res;
+}
+
 Object *cons_builtin(Object *expr) {
   if (list_length(expr) < 2) {
     error_msg("cons requires at least one condition pair argument");
@@ -877,6 +905,7 @@ void init_interp() {
   create_builtin_function_and_save("cdr", (cdr_builtin));
   create_builtin_function_and_save("cadr", (cadr_builtin));
   create_builtin_function_and_save("cond", (cond_builtin));
+  create_builtin_function_and_save("let", (let_builtin));
   create_builtin_function_and_save("cons", (cons_builtin));
   create_builtin_function_and_save("memtotal", (memtotal_builtin));
   create_builtin_function_and_save("timeit", (timeit_builtin));
