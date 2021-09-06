@@ -371,6 +371,10 @@ Object *div_objects_builtin(Object *expr) {
   return binary_builtin(expr, "/", objects_div);
 }
 
+Object *div_objects_rem(Object *expr) {
+  return binary_builtin(expr, "remainder", objects_rem);
+}
+
 Object *mul_objects_builtin(Object *expr) {
   return binary_builtin(expr, "*", objects_mul);
 }
@@ -651,8 +655,10 @@ Object *eval_expr(Object *expr) {
       auto *callable = eval_expr(op);
       if (!is_callable(callable)) {
         auto *s = obj_to_string_bare(callable);
-        error_msg(format("\"{}\" is not callable", s->data()));
+        auto *os = obj_to_string_bare(op);
+        error_msg(format("\"{}\" (eval: {}) is not callable", s->data(), os->data()));
         delete s;
+        delete os;
         return nil_obj;
       }
       bool is_builtin = callable->flags & OF_BUILTIN;
@@ -676,7 +682,7 @@ bool load_file(path file_to_read) {
   auto s = read_whole_file_into_memory(file_to_read.c_str());
   IS.text = s.c_str();
   IS.file_name = file_to_read.c_str();
-  IS.line = 0;
+  IS.line = 1;
   IS.col = 0;
   if (IS.text == nullptr) {
     printf("Couldn't load file at %s, skipping\n", file_to_read.c_str());
@@ -708,6 +714,7 @@ void init_interp() {
   create_builtin_function_and_save("+", (add_objects));
   create_builtin_function_and_save("-", (sub_objects));
   create_builtin_function_and_save("/", (div_objects_builtin));
+  create_builtin_function_and_save("remainder", (div_objects_rem));
   create_builtin_function_and_save("*", (mul_objects_builtin));
   create_builtin_function_and_save("**", (pow_objects_builtin));
   create_builtin_function_and_save("=", (equal_builtin));
@@ -735,7 +742,7 @@ void run_interp() {
   bool is_running = true;
   static std::string prompt = ">> ";
   IS.file_name = "interp";
-  IS.line = 0;
+  IS.line = 1;
   IS.col = 0;
   while (is_running) {
     std::cout << prompt;

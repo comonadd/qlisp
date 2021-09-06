@@ -8,3 +8,5 @@ Separate parsing from evaluation
 Parallel parsing of different modules
 math functions
 graphics functions
+error reports
+interrupt print built-in if there's an error during evaluation

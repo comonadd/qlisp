@@ -11,3 +11,6 @@ Release/
 lisp_impl.dir
 Makefile
 .idea/
+cmake-build-debug/
+launch.json
+*.out

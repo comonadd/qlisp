@@ -23,7 +23,7 @@ struct InterpreterState {
   SymTable *symtable;
   // current module info
   const char* file_name = nullptr;
-  u32 line = 0;
+  u32 line = 1;
   u32 col = 0;
 };
 

@@ -1,13 +1,16 @@
 #ifndef OBJECTS_HPP
 #define OBJECTS_HPP
 
-#include <stdlib.h>
-#include <string.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include <string>
 #include <vector>
+
 #include "util.hpp"
+#include "types.hpp"
 
 enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean };
 
@@ -183,6 +186,12 @@ inline std::string *obj_to_string_bare(Object *obj) {
     case ObjType::String: {
       return new std::string(*obj->val.s_value);
     } break;
+    case ObjType::Symbol: {
+      auto* res = new std::string("[Symbol \"");
+      *res += *obj->val.s_value;
+      *res += "\"]";
+      return res;
+    } break;
     case ObjType::Number: {
       auto *s = new std::string(std::to_string(obj->val.i_value));
       return s;
@@ -286,7 +295,7 @@ inline void print_obj(Object *obj, int indent = 0) {
 ////////////////////////////////////////
 
 inline void error_binop_not_defined(char const *opname, Object const *a,
-                             Object const *b) {
+                                    Object const *b) {
   printf("Error: %s operation for objects of type %s and %s is not defined\n",
          opname, obj_type_to_str(a->type), obj_type_to_str(b->type));
 }
@@ -347,6 +356,19 @@ inline Object *objects_mul(Object *a, Object *b) {
     } break;
     default: {
       error_binop_not_defined("Multiplication", a, b);
+      return nil_obj;
+    } break;
+  }
+}
+
+inline Object *objects_rem(Object *a, Object *b) {
+  switch (a->type) {
+    case ObjType::Number: {
+      i32 val = a->val.i_value % b->val.i_value;
+      return create_num_obj(val);
+    } break;
+    default: {
+      error_binop_not_defined("Remainder", a, b);
       return nil_obj;
     } break;
   }
