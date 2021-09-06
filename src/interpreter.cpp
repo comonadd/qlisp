@@ -529,6 +529,28 @@ Object *sleep_builtin(Object *expr) {
   return nil_obj;
 }
 
+Object* make_hash_table_builtin(Object* expr) {
+  // TODO: Process arguments
+  return create_hash_table_obj();
+}
+
+Object* get_hash_table_builtin(Object* expr) {
+  if (!check_builtin_n_params("get-hash", expr, 2)) return nil_obj;
+  auto* ht = eval_expr(list_index(expr, 1));
+  auto* key = eval_expr(list_index(expr, 2));
+  auto* val = hash_table_get(ht, key);
+  return val;
+}
+
+Object* set_hash_table_builtin(Object* expr) {
+  if (!check_builtin_n_params("set-hash", expr, 3)) return nil_obj;
+  auto* ht = eval_expr(list_index(expr, 1));
+  auto* key = eval_expr(list_index(expr, 2));
+  auto* val = eval_expr(list_index(expr, 3));
+  hash_table_set(ht, key, val);
+  return nil_obj;
+}
+
 Object* null_builtin(Object* expr) {
   auto* e = list_index(expr, 1);
   auto* ee = eval_expr(e);
@@ -771,6 +793,9 @@ void init_interp() {
   create_builtin_function_and_save("memtotal", (memtotal_builtin));
   create_builtin_function_and_save("timeit", (timeit_builtin));
   create_builtin_function_and_save("sleep", (sleep_builtin));
+  create_builtin_function_and_save("make-hash-table", (make_hash_table_builtin));
+  create_builtin_function_and_save("get-hash", (get_hash_table_builtin));
+  create_builtin_function_and_save("set-hash", (set_hash_table_builtin));
   // Load the standard library
   path STDLIB_PATH = "./stdlib";
   load_file(STDLIB_PATH / path("basic.lisp"));

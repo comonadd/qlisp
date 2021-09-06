@@ -10,7 +10,7 @@
 #include "util.hpp"
 
 static char const *otts[] = {"List", "Symbol",   "String", "Number",
-                             "Nil",  "Function", "Boolean"};
+                             "Nil",  "Function", "Boolean", "HashTable"};
 
 Object *nil_obj;
 Object *true_obj;

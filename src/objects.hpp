@@ -2,20 +2,21 @@
 #define OBJECTS_HPP
 
 #include <math.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
+
+#include <fmt/core.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
+#include <optional>
 
-#include "util.hpp"
+#include "errors.hpp"
 #include "types.hpp"
-#include <fmt/core.h>
+#include "util.hpp"
 
 using fmt::format;
 
-enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean };
+enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean, HashTable };
 
 const int OF_BUILTIN = 0x1;
 const int OF_LAMBDA = 0x2;
@@ -26,6 +27,9 @@ struct Object;
 
 using Builtin = Object *(*)(Object *);
 using BinaryObjOpHandler = Object *(*)(Object *a, Object *b);
+using ObjectHash = i64;
+using HashTableValue = std::pair<Object*, Object*>;
+using HashTable = std::unordered_map<ObjectHash, HashTableValue>;
 
 struct Object {
   ObjType type;
@@ -42,6 +46,7 @@ struct Object {
       Object *funargs;
       Object *funbody;
     } f_value;
+    HashTable* ht_value;
   } val;
 };
 
@@ -92,6 +97,43 @@ inline Object *create_str_obj(char *cs) {
 inline Object *create_str_obj(int num) {
   auto *num_s = new std::string(std::to_string(num));
   return create_str_obj(num_s);
+}
+
+inline Object *create_hash_table_obj() {
+  auto *res = new_object(ObjType::HashTable);
+  res->val.ht_value = new HashTable;
+  return res;
+}
+
+inline std::optional<ObjectHash> obj_hash(Object* obj) {
+  switch (obj->type) {
+    case ObjType::Number: {
+      return std::hash<int>{}(obj->val.i_value);
+    } break;
+    case ObjType::String: {
+      return std::hash<std::string>{}(*obj->val.s_value);
+    } break;
+    default: {
+      error_msg(format("Object of type {} is not hashable", obj_type_to_str(obj->type)));
+      return {};
+    } break;
+  }
+}
+
+inline Object* hash_table_get(Object* ht, Object* key_obj) {
+  if (auto hash = obj_hash(key_obj)) {
+    auto res = ht->val.ht_value->find(*hash);
+    if (res == ht->val.ht_value->end()) return nil_obj;
+    return std::get<1>(res->second);
+  } else {
+    return nil_obj;
+  }
+}
+
+inline void hash_table_set(Object* ht, Object* key, Object* val) {
+  if (auto hash = obj_hash(key)) {
+    (*ht->val.ht_value)[*hash] = std::make_pair(key, val);
+  }
 }
 
 inline Object *create_list_obj() {
@@ -234,6 +276,28 @@ inline std::string *obj_to_string_bare(Object *obj) {
       if (obj == true_obj) return new std::string("true");
       assert_stmt(false, "Impossible case");
       return nullptr;
+    } break;
+    case ObjType::HashTable: {
+      auto* res = new std::string("(hash-table '(");
+      bool need_space = false;
+      for (auto& item : *obj->val.ht_value) {
+        auto [key_obj, val] = item.second;
+        auto* key_s = obj_to_string_bare(key_obj);
+        auto* val_s = obj_to_string_bare(val);
+        if (need_space) {
+          *res += " ";
+        }
+        *res += "(";
+        *res += *key_s;
+        *res += " ";
+        *res += *val_s;
+        *res += ")";
+        delete key_s;
+        delete val_s;
+        need_space = true;
+      }
+      *res += "))";
+      return res;
     } break;
     default: {
       return new std::string("nil");

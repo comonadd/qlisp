@@ -8,7 +8,8 @@
 #include <string>
 
 #include "interpreter.hpp"
-#include "objects.hpp"
+
+size_t list_length(const Object*);
 
 using fmt::format;
 
