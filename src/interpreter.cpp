@@ -548,7 +548,10 @@ Object *cond_builtin(Object *expr) {
     // matches before
     bool otherwise_branch = cond_evaluated == else_obj;
     if (otherwise_branch || is_truthy(cond_evaluated)) {
-      auto *res = eval_expr(list_index(cond_pair, 1));
+      Object* res = nil_obj;
+      for (size_t i = 1; i < list_length(cond_pair); ++i) {
+        res = eval_expr(list_index(cond_pair, i));
+      }
       return res;
     }
   }
