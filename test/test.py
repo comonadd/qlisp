@@ -45,13 +45,13 @@ def main():
                 with open(ifp, "r") as f:
                     input_s = f.read()
                     input_args["input"] = input_s
-            res = subprocess.run([INTERP_PATH, fp], stdout=subprocess.PIPE, text=True, **input_args)
-            print("[{}]: Running".format(ef), end="")
-            got = res.stdout
             # Compare to the expected output
             test_output_file = os.path.join(EXAMPLES_OUT_DIR, ef + '.out')
             try:
                 with open(test_output_file, "r") as tof:
+                    res = subprocess.run([INTERP_PATH, fp], stdout=subprocess.PIPE, text=True, **input_args)
+                    print("Running {}".format(ef), end="")
+                    got = res.stdout
                     same = True
                     expected = tof.read()
                     got_it = iter(got.splitlines())
