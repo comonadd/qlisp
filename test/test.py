@@ -38,7 +38,14 @@ def main():
         fp = os.path.join(EXAMPLES_DIR, ef)
         if os.path.isfile(fp):
             # This is an example, so run it
-            res = subprocess.run([INTERP_PATH, fp], stdout=subprocess.PIPE, text=True)
+            input_args = {}
+            ifp = os.path.join(EXAMPLES_OUT_DIR, ef + ".in")
+            has_input_file = os.path.isfile(ifp)
+            if has_input_file:
+                with open(ifp, "r") as f:
+                    input_s = f.read()
+                    input_args["input"] = input_s
+            res = subprocess.run([INTERP_PATH, fp], stdout=subprocess.PIPE, text=True, **input_args)
             print("[{}]: Running".format(ef), end="")
             got = res.stdout
             # Compare to the expected output
@@ -49,6 +56,8 @@ def main():
                     expected = tof.read()
                     got_it = iter(got.splitlines())
                     expected_it = iter(expected.splitlines())
+                    test_comparison = ""
+                    add_newline = False
                     while True:
                         el = next(expected_it, None)
                         el = el.strip() if el is not None else None
@@ -57,9 +66,25 @@ def main():
                         if not el and not gl:
                             # Nothing left to compare, just exit
                             break
-                        same = el == gl
-                        if not same:
-                            break
+                        if el is None or gl is None:
+                            same = False
+                        else:
+                            if add_newline:
+                                test_comparison += '\n'
+                            for i in range(len(el)):
+                                if i >= len(gl):
+                                    same = False
+                                    test_comparison += COL_FAIL + el[i] + COL_ENDC
+                                else:
+                                    if el[i] != gl[i]:
+                                        same = False
+                                        test_comparison += COL_FAIL + gl[i] + COL_ENDC
+                                    else:
+                                        test_comparison += COL_OKGREEN + gl[i] + COL_ENDC
+                            if len(el) < len(gl):
+                                same = False
+                                test_comparison += COL_FAIL + gl[len(el):] + COL_ENDC
+                            add_newline = True
                     if same:
                         print("... {}Test passed{}".format(COL_OKGREEN, COL_ENDC))
                         succeeded += 1
@@ -67,8 +92,8 @@ def main():
                         print("... {}Test failed{}".format(COL_FAIL, COL_ENDC))
                         print(COL_OKGREEN + "- Expected:")
                         print(expected + COL_ENDC)
-                        print(COL_FAIL + "- Got:")
-                        print(got + COL_ENDC)
+                        print("- Got:")
+                        print(test_comparison)
                         failed += 1
                 processed += 1
             except OSError as e:

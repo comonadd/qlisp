@@ -9,7 +9,7 @@
 
 #include "interpreter.hpp"
 
-size_t list_length(const Object*);
+size_t list_length(const Object *);
 
 using fmt::format;
 
@@ -25,7 +25,7 @@ inline void error_builtin_arg_mismatch_function(char const *fname,
                                                 Object const *expr) {
   // 1 for the function name to call
   size_t got = list_length(expr) - 1;
-  error_msg(format("Built-in %s expected {} arguments, got {}", fname, expected,
+  error_msg(format("Built-in {} expected {} arguments, got {}", fname, expected,
                    got));
 }
 

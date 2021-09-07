@@ -6,3 +6,4 @@ Parallel parsing of different modules
 math functions
 graphics functions
 interrupt print built-in if there's an error during evaluation
+Streams

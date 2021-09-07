@@ -548,7 +548,7 @@ Object *cond_builtin(Object *expr) {
     // matches before
     bool otherwise_branch = cond_evaluated == else_obj;
     if (otherwise_branch || is_truthy(cond_evaluated)) {
-      Object* res = nil_obj;
+      Object *res = nil_obj;
       for (size_t i = 1; i < list_length(cond_pair); ++i) {
         res = eval_expr(list_index(cond_pair, i));
       }
@@ -564,11 +564,12 @@ Object *let_builtin(Object *expr) {
     return nil_obj;
   }
   enter_scope();
-  auto* bindings = list_index(expr, 1);
+  auto *bindings = list_index(expr, 1);
   for (size_t idx = 0; idx < list_length(bindings); ++idx) {
     auto *let_pair = list_index(bindings, idx);
     if (let_pair->type != ObjType::List) {
-      error_msg(format("let binding list should consist of lists, got \"{}\"", obj_type_to_str(let_pair->type)));
+      error_msg(format("let binding list should consist of lists, got \"{}\"",
+                       obj_type_to_str(let_pair->type)));
       break;
     }
     auto *let_name = list_index(let_pair, 0);
@@ -580,8 +581,8 @@ Object *let_builtin(Object *expr) {
     }
     set_symbol(*let_name->val.s_value, let_value);
   }
-  auto* let_body = list_index(expr, 2);
-  auto* res = eval_expr(let_body);
+  auto *let_body = list_index(expr, 2);
+  auto *res = eval_expr(let_body);
   exit_scope();
   return res;
 }
@@ -600,14 +601,47 @@ Object *cons_builtin(Object *expr) {
   return res;
 }
 
-inline bool check_builtin_n_params(char const *bname, Object const *expr,
-                                   size_t n) {
-  size_t got_params = list_length(expr) - 1;
-  if (got_params != n) {
-    error_builtin_arg_mismatch_function("timeit", 1, expr);
-    return false;
+enum class EA {
+  LEQ,
+  GEQ,
+  EQ,
+};
+
+bool expect_args_check(Object const *builtin_expr, std::string const &name,
+                       EA k, u32 n) {
+  u64 num_args_given = list_length(builtin_expr) - 1;
+  switch (k) {
+    case EA::GEQ: {
+      // expect more than n arguments
+      if (num_args_given < n) {
+        error_msg(format("\"{}\" expects at least {} arguments, {} was given",
+                         name, n, num_args_given));
+        return false;
+      }
+    } break;
+    case EA::LEQ: {
+      // expect more than n arguments
+      if (num_args_given > n) {
+        error_msg(format("\"{}\" expects at most {} arguments, {} was given",
+                         name, n, num_args_given));
+        return false;
+      }
+    } break;
+    case EA::EQ: {
+      // expect exactly n arguments
+      if (num_args_given != n) {
+        error_msg(format("\"{}\" expects exactly {} arguments, {} was given",
+                         name, n, num_args_given));
+        return false;
+      }
+    } break;
   }
   return true;
+}
+
+inline bool check_builtin_n_params(char const *bname, Object const *expr,
+                                   size_t n) {
+  return expect_args_check(expr, bname, EA::EQ, n);
 }
 
 inline bool check_builtin_no_params(char const *bname, Object const *expr) {
@@ -643,6 +677,35 @@ Object *sleep_builtin(Object *expr) {
   // sleep the execution thread
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
   return nil_obj;
+}
+
+bool expect_arg_type(Object *expr, std::string const &name, u32 k, ObjType ot) {
+  assert_stmt(
+      list_length(expr) >= k,
+      "Should check for argument list length before calling expect_arg_type");
+  Object *arg = list_index(expr, k);
+  if (arg->type != ot) {
+    error_msg(format("\"{}\" expects {}-th argument to be a \"{}\", got \"{}\"",
+                     name, k, obj_type_to_str(ot), obj_type_to_str(arg->type)));
+    return false;
+  }
+  return true;
+}
+
+Object *input_builtin(Object *expr) {
+  if (!expect_args_check(expr, "input", EA::LEQ, 2)) return nil_obj;
+  bool has_prompt = list_length(expr) == 2;
+  if (has_prompt) {
+    if (!expect_arg_type(expr, "input", 1, ObjType::String)) return nil_obj;
+    Object *prompt = list_index(expr, 1);
+    auto *prompt_s = prompt->val.s_value;
+    std::cout << *prompt_s;
+  }
+  auto *input = new std::string();
+  std::cin >> *input;
+  std::cout << '\n';
+  Object *res = create_str_obj(input);
+  return res;
 }
 
 Object *make_hash_table_builtin(Object *expr) {
@@ -917,6 +980,7 @@ void init_interp() {
                                    (make_hash_table_builtin));
   create_builtin_function_and_save("get-hash", (get_hash_table_builtin));
   create_builtin_function_and_save("set-hash", (set_hash_table_builtin));
+  create_builtin_function_and_save("input", (input_builtin));
   // Load the standard library
   path STDLIB_PATH = "./stdlib";
   load_file(STDLIB_PATH / path("basic.lisp"));
