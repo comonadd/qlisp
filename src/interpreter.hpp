@@ -4,7 +4,15 @@
 #include <unordered_map>
 #include <filesystem>
 #include <string>
+#include <thread>
+#include <vector>
+#include <fstream>
+#include <list>
+
 #include "types.hpp"
+
+const auto GC_INTERVAL = std::chrono::milliseconds(5000);
+const auto GC_LOG_FILE = "lisp-gc.log";
 
 using std::filesystem::path;
 
@@ -25,6 +33,15 @@ struct InterpreterState {
   const char* file_name = nullptr;
   u32 line = 1;
   u32 col = 0;
+  bool running = false;
+  // Pool of all objects allocated. Needed for GC
+  // @PERFORMANCE: Custom allocator?
+  std::list<Object*> objects_pool;
+};
+
+struct GarbageCollector {
+  std::thread* thread = nullptr;
+  std::ofstream* log_file = nullptr;
 };
 
 extern InterpreterState IS;

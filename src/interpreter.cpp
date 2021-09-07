@@ -10,6 +10,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -27,6 +28,7 @@ using fmt::format;
 using std::filesystem::path;
 
 InterpreterState IS;
+GarbageCollector GC;
 
 inline bool can_start_a_symbol(char ch) {
   return isalpha(ch) || ch == '+' || ch == '-' || ch == '=' || ch == '-' ||
@@ -60,6 +62,7 @@ inline void consume_char(char ch) {
 }
 
 inline void set_symbol(std::string const &key, Object *value) {
+  inc_ref(value);
   IS.symtable->map[key] = value;
 }
 
@@ -88,13 +91,20 @@ void enter_scope() {
 void enter_scope_with(SymVars vars) {
   SymTable *new_scope = new SymTable();
   new_scope->map = vars;
+  for (auto &var : new_scope->map) {
+    inc_ref(var.second);
+  }
   new_scope->prev = IS.symtable;
   IS.symtable = new_scope;
 }
 
 void exit_scope() {
-  // TODO: assert that we there is a parent table
+  assert_stmt(IS.symtable->prev != nullptr, "Trying to exit global scope");
   auto *prev = IS.symtable->prev;
+  // decrease references to all referenced objects in scope
+  for (auto &s : IS.symtable->map) {
+    dec_ref(s.second);
+  }
   delete IS.symtable;
   IS.symtable = prev;
 }
@@ -182,7 +192,6 @@ Object *read_list(bool literal = false) {
   while (get_char() != ')') {
     if (IS.text_pos >= IS.text_len) {
       eof_error();
-      exit(1);
       return nullptr;
     }
     auto *e = read_expr();
@@ -842,7 +851,13 @@ Object *call_function(Object *fobj, Object *args_list) {
   ++call_stack_size;
   enter_scope_with(locals);
   while (body_expr_idx < body_length) {
+    if (last_evaluated != nil_obj) {
+      dec_ref(last_evaluated);
+    }
     last_evaluated = eval_expr(bodyl->at(body_expr_idx));
+    if (last_evaluated != nil_obj) {
+      inc_ref(last_evaluated);
+    }
     ++body_expr_idx;
   }
   exit_scope();
@@ -917,6 +932,7 @@ Object *eval_expr(Object *expr) {
 }
 
 bool load_file(path file_to_read) {
+  assert_stmt(IS.running, "");
   auto s = read_whole_file_into_memory(file_to_read.c_str());
   IS.text = s.c_str();
   IS.file_name = file_to_read.c_str();
@@ -924,6 +940,7 @@ bool load_file(path file_to_read) {
   IS.col = 0;
   if (IS.text == nullptr) {
     printf("Couldn't load file at %s, skipping\n", file_to_read.c_str());
+    IS.running = false;
     return false;
   }
   IS.text_len = strlen(IS.text);
@@ -935,6 +952,46 @@ bool load_file(path file_to_read) {
   return true;
 }
 
+void gc_task() {
+  GC.log_file =
+      new std::ofstream(GC_LOG_FILE, std::ios_base::app | std::ios_base::ate);
+  using std::chrono::duration;
+  using std::chrono::duration_cast;
+  using std::chrono::high_resolution_clock;
+  using std::chrono::milliseconds;
+  // auto &gc_out = GC.log_file;
+  auto &gc_out = *GC.log_file;
+  gc_out << "Initializing GC..." << std::endl;
+  while (IS.running) {
+    gc_out << "Cleaning up... ";
+    auto start_time = high_resolution_clock::now();
+    u32 objects_total = 0;
+    u32 objects_deleted = 0;
+    // do gc
+    for (auto it = IS.objects_pool.begin(); it != IS.objects_pool.end(); ++it) {
+      auto *curr = *it;
+      const bool persistent = curr->flags & OF_PERSISTENT;
+      if (curr->ref == 0 && !persistent) {
+        auto prev_it = it;
+        ++it;
+        IS.objects_pool.erase(prev_it);
+        delete_obj(curr);
+      } else {
+        objects_total += 1;
+      }
+    }
+    auto end_time = high_resolution_clock::now();
+    duration<double, std::milli> ms_double = end_time - start_time;
+    auto running_time = ms_double.count();
+    gc_out << format("deleted {} objects, {} total. Took {} ms",
+                     objects_deleted, objects_total, running_time);
+    gc_out << std::endl;
+    std::this_thread::sleep_for(GC_INTERVAL);
+  }
+}
+
+void init_gc() { GC.thread = new std::thread(gc_task); }
+
 void init_interp() {
   // Initialize global symbol table
   IS.symtable = new SymTable();
@@ -943,7 +1000,7 @@ void init_interp() {
   true_obj = create_bool_obj(true);
   false_obj = create_bool_obj(false);
   dot_obj = create_final_sym_obj(".");
-  else_obj = create_final_sym_obj(".");
+  else_obj = create_final_sym_obj("else");
   // initialize symtable with builtins
   set_symbol("nil", nil_obj);
   set_symbol("true", true_obj);
@@ -981,36 +1038,80 @@ void init_interp() {
   create_builtin_function_and_save("get-hash", (get_hash_table_builtin));
   create_builtin_function_and_save("set-hash", (set_hash_table_builtin));
   create_builtin_function_and_save("input", (input_builtin));
+  // setup gc
+  IS.running = true;
+  init_gc();
   // Load the standard library
   path STDLIB_PATH = "./stdlib";
   load_file(STDLIB_PATH / path("basic.lisp"));
 }
 
 void run_interp() {
+  assert_stmt(IS.running, "");
+  // std::string prev_input = "";
   std::string input;
-  bool is_running = true;
   static std::string prompt = ">> ";
   IS.file_name = "interp";
   IS.line = 1;
   IS.col = 0;
-  while (is_running) {
+
+  // auto prev_history_item = [&]() -> void {
+  //   // std::cout << "prev history item" << std::endl;
+  //   if (prev_input != "") {
+  //     input = prev_input;
+  //     std::cout << input;
+  //   }
+  // };
+  // const std::string up = "\033[A";
+  // const std::string down = "\033[B";
+  // const std::string left = "\033[D";
+  // const std::string right = "\033[C";
+  // const std::unordered_map<std::string, std::function<void()>>
+  //     escape_sequences = {{up, prev_history_item}};
+
+  // std::string escape_seq_s = "";
+  // bool reading_escape_seq = false;
+  char c;
+  while (IS.running) {
     std::cout << prompt;
-    char c;
-    while (std::cin.get(c) && c != '\n') {
-      input += c;
+    while (std::cin.get(c)) {
+      // if (reading_escape_seq) {
+      //   escape_seq_s += c;
+      //   // std::cout << "reading-escape-seq: " << escape_seq_s << std::endl;
+      //   if (escape_sequences.find(escape_seq_s) != escape_sequences.end()) {
+      //     auto handler = escape_sequences.at(escape_seq_s);
+      //     handler();
+      //     escape_seq_s = "";
+      //   }
+      // } else if (c == '\033') {
+      //   escape_seq_s += c;
+      //   reading_escape_seq = true;
+      // } else
+      if (c == '\n') {
+        break;
+      } else {
+        input += c;
+      }
     }
+    // if (reading_escape_seq) {
+    //   reading_escape_seq = false;
+    //   continue;
+    // }
+    // prev_input = input;
     if (input == ".exit") {
-      is_running = false;
+      IS.running = false;
       continue;
     }
     IS.text = input.data();
     IS.text_pos = 0;
     IS.text_len = input.size();
     auto *e = read_expr();
-    auto *res = eval_expr(e);
-    auto *str_repr = obj_to_string_bare(res);
-    std::cout << str_repr->data() << '\n';
-    delete str_repr;
+    if (e != nullptr) {
+      auto *res = eval_expr(e);
+      auto *str_repr = obj_to_string_bare(res);
+      std::cout << str_repr->data() << '\n';
+      delete str_repr;
+    }
     input = "";
   }
 }

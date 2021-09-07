@@ -1,14 +1,14 @@
 #ifndef OBJECTS_HPP
 #define OBJECTS_HPP
 
+#include <fmt/core.h>
 #include <math.h>
 
-#include <fmt/core.h>
-
+#include <iostream>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <optional>
 
 #include "errors.hpp"
 #include "types.hpp"
@@ -16,24 +16,37 @@
 
 using fmt::format;
 
-enum class ObjType { List, Symbol, String, Number, Nil, Function, Boolean, HashTable };
+enum class ObjType {
+  List,
+  Symbol,
+  String,
+  Number,
+  Nil,
+  Function,
+  Boolean,
+  HashTable
+};
 
 const int OF_BUILTIN = 0x1;
 const int OF_LAMBDA = 0x2;
 const int OF_EVALUATED = 0x4;
 const int OF_LIST_LITERAL = 0x8;
+// if this flag is true, don't GC this object
+const int OF_PERSISTENT = 0xF;
 
 struct Object;
 
 using Builtin = Object *(*)(Object *);
 using BinaryObjOpHandler = Object *(*)(Object *a, Object *b);
 using ObjectHash = i64;
-using HashTableValue = std::pair<Object*, Object*>;
+using HashTableValue = std::pair<Object *, Object *>;
 using HashTable = std::unordered_map<ObjectHash, HashTableValue>;
 
 struct Object {
   ObjType type;
   int flags = 0;
+  // how many references are there in the system to this object
+  u32 ref = 0;
   union {
     int i_value;
     std::string *s_value;
@@ -46,7 +59,7 @@ struct Object {
       Object *funargs;
       Object *funbody;
     } f_value;
-    HashTable* ht_value;
+    HashTable *ht_value;
   } val;
 };
 
@@ -57,18 +70,60 @@ extern Object *dot_obj;
 extern Object *else_obj;
 
 char const *obj_type_to_str(ObjType ot);
+std::string *obj_to_string_bare(Object *);
+
+inline void inc_ref(Object *o) { ++o->ref; }
+
+inline void delete_obj(Object *o) {
+  switch (o->type) {
+    case ObjType::String: {
+      delete o->val.s_value;
+    } break;
+    case ObjType::List: {
+      delete o->val.l_value;
+    } break;
+    case ObjType::Number: {
+    } break;
+    case ObjType::HashTable: {
+      delete o->val.ht_value;
+    } break;
+    case ObjType::Function: {
+      delete_obj(o->val.f_value.funargs);
+      delete_obj(o->val.f_value.funbody);
+    } break;
+    case ObjType::Symbol: {
+      delete o->val.s_value;
+    } break;
+    default: {
+      assert_stmt(
+          false,
+          format(
+              "Impossible case: trying to delete unknown object of type \"{}\"",
+              obj_type_to_str(o->type)));
+      return;
+    } break;
+  }
+  delete o;
+}
+
+inline void dec_ref(Object *o) {
+  if (o->ref != 0) {
+    --o->ref;
+  } else {
+    // delete_obj(o);
+  }
+}
 
 inline Object *new_object(ObjType type, int flags = 0) {
   Object *res = (Object *)malloc(sizeof(*res));
   res->type = type;
   res->flags = flags;
+  IS.objects_pool.push_back(res);
   return res;
 }
 
-// @ROBUSTNESS do we need this ?? we only perform this function call once during
-// initialization
 inline Object *create_nil_obj() {
-  return new_object(ObjType::Nil, OF_EVALUATED);
+  return new_object(ObjType::Nil, OF_EVALUATED | OF_PERSISTENT);
 }
 
 inline Object *create_str_obj(std::string *s) {
@@ -78,7 +133,7 @@ inline Object *create_str_obj(std::string *s) {
 }
 
 inline Object *create_bool_obj(bool v) {
-  auto *res = new_object(ObjType::Boolean, OF_EVALUATED);
+  auto *res = new_object(ObjType::Boolean, OF_EVALUATED | OF_PERSISTENT);
   res->val.i_value = (int)v;
   return res;
 }
@@ -105,7 +160,7 @@ inline Object *create_hash_table_obj() {
   return res;
 }
 
-inline std::optional<ObjectHash> obj_hash(Object* obj) {
+inline std::optional<ObjectHash> obj_hash(Object *obj) {
   switch (obj->type) {
     case ObjType::Number: {
       return std::hash<int>{}(obj->val.i_value);
@@ -114,13 +169,14 @@ inline std::optional<ObjectHash> obj_hash(Object* obj) {
       return std::hash<std::string>{}(*obj->val.s_value);
     } break;
     default: {
-      error_msg(format("Object of type {} is not hashable", obj_type_to_str(obj->type)));
+      error_msg(format("Object of type {} is not hashable",
+                       obj_type_to_str(obj->type)));
       return {};
     } break;
   }
 }
 
-inline Object* hash_table_get(Object* ht, Object* key_obj) {
+inline Object *hash_table_get(Object *ht, Object *key_obj) {
   if (auto hash = obj_hash(key_obj)) {
     auto res = ht->val.ht_value->find(*hash);
     if (res == ht->val.ht_value->end()) return nil_obj;
@@ -130,8 +186,10 @@ inline Object* hash_table_get(Object* ht, Object* key_obj) {
   }
 }
 
-inline void hash_table_set(Object* ht, Object* key, Object* val) {
+inline void hash_table_set(Object *ht, Object *key, Object *val) {
   if (auto hash = obj_hash(key)) {
+    inc_ref(key);
+    inc_ref(val);
     (*ht->val.ht_value)[*hash] = std::make_pair(key, val);
   }
 }
@@ -141,33 +199,38 @@ inline Object *create_list_obj() {
   res->val.l_value = new std::vector<Object *>();
   return res;
 }
+
 inline Object *create_data_list_obj() {
   auto *res = create_list_obj();
   res->flags |= OF_EVALUATED;
   return res;
 }
+
 inline size_t list_length(Object const *list) {
   return list->val.l_value->size();
 }
+
 inline Object *list_index(Object *list, size_t i) {
   return list->val.l_value->at(i);
 }
+
 inline std::vector<Object *> *list_members(Object *list) {
   return list->val.l_value;
 }
+
 inline bool is_list(Object *obj) { return obj->type == ObjType::List; }
+
 inline void list_append_inplace(Object *list, Object *item) {
-  // we probably need to track dependency of the new list on CDR objects of the
-  // argument list so we have to increment ref count for each object. Somehow
-  // abstract that into a separate function call? like "ref" for example?
+  inc_ref(item);
   list->val.l_value->push_back(item);
 }
+
 inline void list_append_list_inplace(Object *list, Object *to_append) {
   if (to_append->type != ObjType::List) {
     list_append_inplace(list, to_append);
     return;
   }
-  for (auto* item : *list_members(to_append)) {
+  for (auto *item : *list_members(to_append)) {
     list_append_inplace(list, item);
   }
 }
@@ -198,6 +261,7 @@ template <typename T>
 inline Object *create_final_sym_obj(T s) {
   auto *res = create_sym_obj(s);
   res->flags |= OF_EVALUATED;
+  res->flags |= OF_PERSISTENT;
   return res;
 }
 
@@ -235,75 +299,7 @@ inline bool is_truthy(Object *obj) {
 
 // This function returns a new string representing the object
 // You can delete it safely without affecting the object
-inline std::string *obj_to_string_bare(Object *obj) {
-  switch (obj->type) {
-    case ObjType::String: {
-      return new std::string(*obj->val.s_value);
-    } break;
-    case ObjType::Symbol: {
-      auto* res = new std::string("[Symbol \"");
-      *res += *obj->val.s_value;
-      *res += "\"]";
-      return res;
-    } break;
-    case ObjType::Number: {
-      auto *s = new std::string(std::to_string(obj->val.i_value));
-      return s;
-    } break;
-    case ObjType::Function: {
-      auto const *fn = fun_name(obj);
-      std::string *s = new std::string("[Function ");
-      if (obj->flags & OF_BUILTIN) {
-        *s += "(builtin) ";
-      }
-      *s += fn;
-      *s += ']';
-      return s;
-    } break;
-    case ObjType::List: {
-      auto *res = new std::string("(");
-      for (size_t i = 0; i < list_length(obj) - 1; ++i) {
-        auto *member = list_index(obj, i);
-        *res += *obj_to_string_bare(member);
-        *res += ' ';
-      }
-      *res += *obj_to_string_bare(list_index(obj, list_length(obj) - 1));
-      *res += ')';
-      return res;
-    } break;
-    case ObjType::Boolean: {
-      if (obj == false_obj) return new std::string("false");
-      if (obj == true_obj) return new std::string("true");
-      assert_stmt(false, "Impossible case");
-      return nullptr;
-    } break;
-    case ObjType::HashTable: {
-      auto* res = new std::string("(hash-table '(");
-      bool need_space = false;
-      for (auto& item : *obj->val.ht_value) {
-        auto [key_obj, val] = item.second;
-        auto* key_s = obj_to_string_bare(key_obj);
-        auto* val_s = obj_to_string_bare(val);
-        if (need_space) {
-          *res += " ";
-        }
-        *res += "(";
-        *res += *key_s;
-        *res += " ";
-        *res += *val_s;
-        *res += ")";
-        delete key_s;
-        delete val_s;
-        need_space = true;
-      }
-      *res += "))";
-      return res;
-    } break;
-    default: {
-      return new std::string("nil");
-    }
-  }
-}
+std::string *obj_to_string_bare(Object *obj);
 
 inline Object *obj_to_string(Object *obj) {
   // TODO: Implement for symbols
@@ -319,7 +315,7 @@ inline Object *obj_to_string(Object *obj) {
 }
 
 inline Object *create_builtin_fobj(char const *name, Builtin handler) {
-  Object *res = new_object(ObjType::Function, OF_BUILTIN | OF_EVALUATED);
+  Object *res = new_object(ObjType::Function, OF_BUILTIN | OF_EVALUATED | OF_PERSISTENT);
   res->val.bf_value.builtin_handler = handler;
   res->val.bf_value.name = name;
   return res;

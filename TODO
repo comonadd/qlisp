@@ -1,7 +1,4 @@
-Garbage collection
-Memory leaks
 Modules
-Separate parsing from evaluation
 Parallel parsing of different modules
 math functions
 graphics functions

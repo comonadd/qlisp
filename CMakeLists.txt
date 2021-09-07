@@ -27,5 +27,7 @@ endif ()
 
 add_executable(${TARGET} ${sources})
 
+find_package(Threads)
+target_link_libraries(${TARGET} ${CMAKE_THREAD_LIBS_INIT})
 find_package(fmt)
 target_link_libraries(${TARGET} fmt::fmt)

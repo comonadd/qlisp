@@ -22,6 +22,79 @@ char const *obj_type_to_str(ObjType ot) { return otts[(int)ot]; }
 
 char const *obj_type_s(Object *a) { return obj_type_to_str(a->type); }
 
+std::string *obj_to_string_bare(Object *obj) {
+  switch (obj->type) {
+    case ObjType::String: {
+      return new std::string(*obj->val.s_value);
+    } break;
+    case ObjType::Symbol: {
+      auto *res = new std::string("[Symbol \"");
+      *res += *obj->val.s_value;
+      *res += "\"]";
+      return res;
+    } break;
+    case ObjType::Number: {
+      auto *s = new std::string(std::to_string(obj->val.i_value));
+      return s;
+    } break;
+    case ObjType::Function: {
+      auto const *fn = fun_name(obj);
+      std::string *s = new std::string("[Function ");
+      if (obj->flags & OF_BUILTIN) {
+        *s += "(builtin) ";
+      }
+      *s += fn;
+      *s += ']';
+      return s;
+    } break;
+    case ObjType::List: {
+      auto *res = new std::string("(");
+      bool need_space = false;
+      for (size_t i = 0; i < list_length(obj); ++i) {
+        auto *member = list_index(obj, i);
+        if (need_space) {
+          *res += ' ';
+        }
+        *res += *obj_to_string_bare(member);
+        need_space = true;
+      }
+      *res += ')';
+      return res;
+    } break;
+    case ObjType::Boolean: {
+      if (obj == false_obj) return new std::string("false");
+      if (obj == true_obj) return new std::string("true");
+      assert_stmt(false, "Impossible case");
+      return nullptr;
+    } break;
+    case ObjType::HashTable: {
+      auto *res = new std::string("(hash-table '(");
+      bool need_space = false;
+      for (auto &item : *obj->val.ht_value) {
+        auto [key_obj, val] = item.second;
+        auto *key_s = obj_to_string_bare(key_obj);
+        auto *val_s = obj_to_string_bare(val);
+        if (need_space) {
+          *res += " ";
+        }
+        *res += "(";
+        *res += *key_s;
+        *res += " ";
+        *res += *val_s;
+        *res += ")";
+        delete key_s;
+        delete val_s;
+        need_space = true;
+      }
+      *res += "))";
+      return res;
+    } break;
+    default: {
+      return new std::string("nil");
+    }
+  }
+}
+
 Object *sub_two_objects(Object *a, Object *b) {
   switch (a->type) {
     case ObjType::Number: {
