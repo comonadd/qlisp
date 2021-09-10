@@ -4,6 +4,8 @@ project(lisp_impl VERSION 1.0.0 LANGUAGES CXX)
 set(TARGET "lisp_impl")
 set(src "../src")
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if (WIN32)
   set(platform_sources ${src}/platform/win32.cpp)
 elseif (UNIX)

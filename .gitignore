@@ -16,3 +16,5 @@ launch.json
 *.out
 examples/testing.lisp
 *.log
+TAGS
+compile_commands.json

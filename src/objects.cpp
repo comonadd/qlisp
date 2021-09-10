@@ -145,12 +145,13 @@ Object *add_two_objects(Object *a, Object *b) {
 bool objects_equal_bare(Object *a, Object *b) {
   // Objects of different types cannot be equal
   if (a->type != b->type) return false;
+  if (a == b) return true;
   switch (a->type) {
     case ObjType::Number: {
       return a->val.i_value == b->val.i_value;
     } break;
     case ObjType::String: {
-      return a->val.s_value == b->val.s_value;
+      return *a->val.s_value == *b->val.s_value;
     } break;
     case ObjType::Boolean: {
       return a->val.i_value == b->val.i_value;
