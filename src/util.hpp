@@ -3,17 +3,20 @@
 
 #include <stdlib.h>
 
+#include <string>
+
 #if DEBUG
-inline void assert_stmt(bool expr, std::string msg) {
-  if (!expr) {
-    printf("Assertion failed: %s\n", msg.c_str());
-    exit(1);
+#define assert_stmt(__expr, __msg)                                    \
+  {                                                                   \
+    if (!(__expr)) {                                                  \
+      printf("Assertion failed: %s\n", (std::string(__msg)).c_str()); \
+      exit(1);                                                        \
+    }                                                                 \
   }
-}
 #else
-inline void assert_stmt(bool expr, std::string msg) {}
+#define assert_stmt(__expr, __msg)
 #endif
 
-std::string read_whole_file_into_memory(char const *fp);
+std::string read_whole_file_into_memory(char const* fp);
 
 #endif
