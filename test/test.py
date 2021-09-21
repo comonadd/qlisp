@@ -7,25 +7,27 @@ ROOT_DIR = os.path.realpath(os.path.join(SCRIPT_DIR, ".."))
 EXAMPLES_DIR = os.path.join(ROOT_DIR, "examples")
 EXAMPLES_OUT_DIR = os.path.join(EXAMPLES_DIR, "out_test")
 BDIR = os.path.join(ROOT_DIR, "Debug")
-if os.name == 'nt':
-    INTERP_PATH = os.path.join(BDIR, "lisp_impl.exe")
-elif os.name == 'posix':
-    INTERP_PATH = os.path.join(BDIR, "lisp_impl")
+if os.name == "nt":
+    INTERP_PATH = os.path.join(BDIR, "qlisp.exe")
+elif os.name == "posix":
+    INTERP_PATH = os.path.join(BDIR, "qlisp")
 else:
     print("OS not supported", file=sys.stderr)
     sys.exit(1)
 
-COL_PINK = '\033[95m'
-COL_OKBLUE = '\033[94m'
-COL_OKGREEN = '\033[92m'
-COL_WARNING = '\033[93m'
-COL_FAIL = '\033[91m'
-COL_ENDC = '\033[0m'
+COL_PINK = "\033[95m"
+COL_OKBLUE = "\033[94m"
+COL_OKGREEN = "\033[92m"
+COL_WARNING = "\033[93m"
+COL_FAIL = "\033[91m"
+COL_ENDC = "\033[0m"
+
 
 def fmt_num_word(word, num):
     if num == 1:
         return word
-    return word + 's'
+    return word + "s"
+
 
 def main():
     print("Running examples from {}".format(EXAMPLES_DIR))
@@ -46,10 +48,15 @@ def main():
                     input_s = f.read()
                     input_args["input"] = input_s
             # Compare to the expected output
-            test_output_file = os.path.join(EXAMPLES_OUT_DIR, ef + '.out')
+            test_output_file = os.path.join(EXAMPLES_OUT_DIR, ef + ".out")
             try:
                 with open(test_output_file, "r") as tof:
-                    res = subprocess.run([INTERP_PATH, fp], stdout=subprocess.PIPE, text=True, **input_args)
+                    res = subprocess.run(
+                        [INTERP_PATH, fp],
+                        stdout=subprocess.PIPE,
+                        text=True,
+                        **input_args
+                    )
                     print("Running {}".format(ef), end="")
                     got = res.stdout
                     same = True
@@ -70,7 +77,7 @@ def main():
                             same = False
                         else:
                             if add_newline:
-                                test_comparison += '\n'
+                                test_comparison += "\n"
                             for i in range(len(el)):
                                 if i >= len(gl):
                                     same = False
@@ -80,10 +87,12 @@ def main():
                                         same = False
                                         test_comparison += COL_FAIL + gl[i] + COL_ENDC
                                     else:
-                                        test_comparison += COL_OKGREEN + gl[i] + COL_ENDC
+                                        test_comparison += (
+                                            COL_OKGREEN + gl[i] + COL_ENDC
+                                        )
                             if len(el) < len(gl):
                                 same = False
-                                test_comparison += COL_FAIL + gl[len(el):] + COL_ENDC
+                                test_comparison += COL_FAIL + gl[len(el) :] + COL_ENDC
                             add_newline = True
                     if same:
                         print("... {}Test passed{}".format(COL_OKGREEN, COL_ENDC))
@@ -100,9 +109,18 @@ def main():
                 # Just skip the test suite if there is no output file found
                 continue
     print("Processed {} tests".format(processed))
-    print("{}{} {} succeeded{}".format(COL_OKGREEN, succeeded, fmt_num_word("test", succeeded), COL_ENDC))
+    print(
+        "{}{} {} succeeded{}".format(
+            COL_OKGREEN, succeeded, fmt_num_word("test", succeeded), COL_ENDC
+        )
+    )
     if failed != 0:
-        print("{}{} {} failed{}".format(COL_FAIL, failed, fmt_num_word("test", failed), COL_ENDC))
+        print(
+            "{}{} {} failed{}".format(
+                COL_FAIL, failed, fmt_num_word("test", failed), COL_ENDC
+            )
+        )
+
 
 if __name__ == "__main__":
     try:
