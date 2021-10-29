@@ -54,6 +54,7 @@ def main():
                     res = subprocess.run(
                         [INTERP_PATH, fp],
                         stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
                         text=True,
                         **input_args
                     )
