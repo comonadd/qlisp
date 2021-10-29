@@ -32,6 +32,8 @@ using std::chrono::high_resolution_clock;
 using std::chrono::milliseconds;
 using std::filesystem::path;
 
+path STDLIB_PATH = "./stdlib";
+
 InterpreterState IS;
 GarbageCollector GC;
 
@@ -676,6 +678,7 @@ std::string curr_module_dir() {
 std::vector<std::string> construct_search_path_for_curr_module() {
     auto curr_dir = curr_module_dir();
     std::vector<std::string> res;
+    res.push_back(STDLIB_PATH);
     res.push_back(curr_dir);
     return res;
 }
@@ -1052,7 +1055,6 @@ void init_interp() {
   IS.running = true;
   init_gc();
   // Load the standard library
-  path STDLIB_PATH = "./stdlib";
   load_file(STDLIB_PATH / path("basic.lisp"));
 }
 
