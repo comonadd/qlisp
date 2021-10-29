@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <set>
 
 #include "errors.hpp"
 #include "objects.hpp"
@@ -666,6 +667,38 @@ inline bool check_builtin_no_params(char const *bname, Object const *expr) {
     return __handler(left_op, right_op);            \
   })
 
+std::string curr_module_dir() {
+    assert_stmt(IS.file_name != nullptr, "file name is not initialized");
+    auto fp = path(IS.file_name);
+    return fp.parent_path();
+}
+
+std::vector<std::string> construct_search_path_for_curr_module() {
+    auto curr_dir = curr_module_dir();
+    std::vector<std::string> res;
+    res.push_back(curr_dir);
+    return res;
+}
+
+std::set<path> imported_paths;
+
+void import_module(std::string* module_name) {
+    auto sp = construct_search_path_for_curr_module();
+    auto module_name_p = path();
+    module_name_p += *module_name;
+    module_name_p += ".lisp";
+    for (auto& dp : sp) {
+        auto p = path(dp / module_name_p);
+        if (imported_paths.find(p) != imported_paths.end()) {
+            continue;
+        }
+        imported_paths.insert(p);
+        InterpreterState saved_state = IS;
+        load_file(p);
+        IS = saved_state;
+    }
+}
+
 void setup_builtins() {
   set_symbol("nil", nil_obj);
   set_symbol("true", true_obj);
@@ -995,6 +1028,13 @@ void setup_builtins() {
     auto *e = list_index(expr, 1);
     auto *ee = eval_expr(e);
     return is_truthy(ee) ? false_obj : true_obj;
+  });
+
+  BUILTIN_DEF("import", EA::EQ, 1, [](Object *expr) {
+    auto *e = list_index(expr, 1);
+    auto *ee = eval_expr(e);
+    import_module(ee->val.s_value);
+    return nil_obj;
   });
 }
 

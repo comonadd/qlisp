@@ -1,0 +1,13 @@
+(defun (for-each-except exception p list)
+    (defun (loop items)
+        (cond ((null? items) "done")
+              ((= (car items) exception) (loop (cdr items)))
+              (else (p (car items))
+                    (loop (cdr items)))))
+    (loop list))
+(defun (natural-numbers n)
+    (defun (iter i)
+        (if (= i n)
+            i
+            (cons i (iter (+ i 1)))))
+    (iter 0))
