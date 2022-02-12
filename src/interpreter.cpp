@@ -12,13 +12,13 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <set>
 
 #include "errors.hpp"
 #include "objects.hpp"
@@ -670,36 +670,36 @@ inline bool check_builtin_no_params(char const *bname, Object const *expr) {
   })
 
 std::string curr_module_dir() {
-    assert_stmt(IS.file_name != nullptr, "file name is not initialized");
-    auto fp = path(IS.file_name);
-    return fp.parent_path();
+  assert_stmt(IS.file_name != nullptr, "file name is not initialized");
+  auto fp = path(IS.file_name);
+  return fp.parent_path();
 }
 
 std::vector<std::string> construct_search_path_for_curr_module() {
-    auto curr_dir = curr_module_dir();
-    std::vector<std::string> res;
-    res.push_back(STDLIB_PATH);
-    res.push_back(curr_dir);
-    return res;
+  auto curr_dir = curr_module_dir();
+  std::vector<std::string> res;
+  res.push_back(STDLIB_PATH);
+  res.push_back(curr_dir);
+  return res;
 }
 
 std::set<path> imported_paths;
 
-void import_module(std::string* module_name) {
-    auto sp = construct_search_path_for_curr_module();
-    auto module_name_p = path();
-    module_name_p += *module_name;
-    module_name_p += ".lisp";
-    for (auto& dp : sp) {
-        auto p = path(dp / module_name_p);
-        if (imported_paths.find(p) != imported_paths.end()) {
-            continue;
-        }
-        imported_paths.insert(p);
-        InterpreterState saved_state = IS;
-        load_file(p);
-        IS = saved_state;
+void import_module(std::string *module_name) {
+  auto sp = construct_search_path_for_curr_module();
+  auto module_name_p = path();
+  module_name_p += *module_name;
+  module_name_p += ".lisp";
+  for (auto &dp : sp) {
+    auto p = path(dp / module_name_p);
+    if (imported_paths.find(p) != imported_paths.end()) {
+      continue;
     }
+    imported_paths.insert(p);
+    InterpreterState saved_state = IS;
+    load_file(p);
+    IS = saved_state;
+  }
 }
 
 void setup_builtins() {
